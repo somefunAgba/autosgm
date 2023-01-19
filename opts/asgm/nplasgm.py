@@ -5,10 +5,10 @@ import numpy as np
 
 try:
     from opts.elpf.fo import LPF
-    from opts.elpf.sfo import sLPF
+    from opts.elpf.esfo import esLPF
 except:
     from elpf.fo import LPF
-    from elpf.sfo import sLPF
+    from opts.elpf.esfo import esLPF
 
 from copy import copy as cpy
 
@@ -175,7 +175,7 @@ class PID():
         if not 0.0 <= weight_decay:
             raise ValueError(f"Invalid weight decay value: {weight_decay}")
 
-        self.ssslpf = sLPF()
+        self.ssslpf = esLPF()
         self.mlpf = LPF(inplace=True)
         self.vlpf = LPF(inplace=True)
         self.wlpf = LPF(inplace=True)
@@ -288,7 +288,7 @@ class PID():
 
 
 # Functional Interface
-def control_event(asgm: AGM, ssslpf:sLPF, loss, 
+def control_event(asgm: AGM, ssslpf:esLPF, loss, 
             params, grads, mk, vk, qk, wk, 
             steps_per_epoch:int, state_steps: List[int],
             ss_init, ss_end, beta_ss, 

@@ -1,17 +1,20 @@
 r"""sLPF"""
 
-# General Unbiased First-order Low Pass Filter Structure
+# Stateless Asymptotically Unbiased First-order Low Pass Filter Structure
 
 
 # Root LPF object
-class sLPF():
-  # General Stateless Unbiased First-order Low Pass Filter Structure
-  # Useful for Tracking 
-
+class esLPF():
+  '''
+  Stateless First-order Low Pass Filter Structure
+  
+  It's input is required to be a constant.
+  '''
+  
   def __init__(self):
     
     self.ak = 1.
-    self.bk = 0.
+    self.bk = 1.
     self.ck = 1.
 
   def gains(self, betai, step=1):
@@ -37,21 +40,20 @@ class sLPF():
     
     return self.bk**(step-1)
 
-  def out(self,u,x_init,cte):
+  def out(self,u,x_init,noise_k,cte):
     # integrating
-    x = u + (cte*(x_init - u))
-    # direct
-    # x = (1-cte)*u + cte*x_init
+    x = u + (cte*(x_init - u)) + ((1-cte)*noise_k) 
+    # direct: x = (1-cte)*u + cte*x_init + ((1-cte)*noise_k) 
     # filter's output at each step
     # y = x
     return x
     
-  def compute(self, u, x_init, beta, step=1):
+  def compute(self, u, x_init,noise_k, beta, step=1):
     
     # stateless
     # req=> input: u, init_state: x_init
     
     # compute gains
     # compute output
-    return self.out(u,x_init,self.gains(beta,step))
+    return self.out(u,x_init,noise_k,self.gains(beta,step))
     

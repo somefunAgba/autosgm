@@ -1,6 +1,6 @@
 r"""sLPF:Torch"""
 
-# General Unbiased First-order Low Pass Filter Structure
+# Stateless First-order Low Pass Filter Structure
 
 import torch
 from torch import Tensor
@@ -9,8 +9,11 @@ from typing import Union
 
 # Root LPF object
 class esLPF():
-  # General Expected Stateless Assymptotically Unbiased First-order Low Pass Filter Structure
-  # Useful for Tracking 
+  '''
+  Stateless First-order Low Pass Filter Structure
+  
+  It's input is required to be a constant.
+  '''
 
   def __init__(self, cdevice:any="cpu"):
     
