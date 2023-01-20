@@ -3,8 +3,11 @@
 <img src="./lasgm_blkview.svg" width="500">
 
 ## What is this library about? (short description)
-This library implements the AutoSGM learning algorithm. 
-AutoSGM is a unifying framework for accelerated learning.
+This library implements the first-order gradient method, for learning the parameters in a pre-defined (artificial) neural network (any appropriate composition of differntiable functions) that is used to fit a data-set. 
+AutoSGM is a unifying representation for accelerated learning.
+
+We move away from the clutter of the many variants of the (Stochastic) Gradient Method (SGM),
+and present AutoSGM as the empirical form of the best possible learning algorithm (minimum bayes risk estimator) that automatically arises in the class of linear functions.  
 
 
 ## Getting Started (installing or setting up)
