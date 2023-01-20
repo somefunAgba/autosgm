@@ -537,7 +537,9 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       # Compute Effective Test-Accuracy:
       # mean accuracy - mean pred.difference
       # eff_test_acc = (np.mean(np.array(dev_accs_list_per_run))-np.mean(np.array(actual_pdiff_list)))/total_datapts  
-      eff_test_acc = (np.mean(np.max(np.array(dev_accs_list_per_run),1)))-((np.mean(np.array(pdiff_list))))  
+      avg_test_acc = (np.mean(np.max(np.array(dev_accs_list_per_run),1)))
+      avg_pred_diff = ((np.mean(np.array(pdiff_list))))  
+      eff_test_acc = avg_test_acc - avg_pred_diff
       
       # - Save Pdiff  
       df = pd.DataFrame(pdiff_list)
@@ -560,7 +562,7 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       # - Write current cfg to the stores folder for book-keeping
       run_cfgs = copy.deepcopy(cfgs)
       run_cfgs['eff_test_accuracy'] = eff_test_acc
-      print(f"Effective Test Accuracy={eff_test_acc}, pval={pval}")
+      
       try:
         run_cfgs['med_stat'] = med_stat[0]
         run_cfgs['pval'] = pval[0]
@@ -575,6 +577,13 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       thisPATH = f"{PATHruncfg}/cfgs_{PathStr}.json"
       with open(thisPATH, 'w') as cfglist:
         json.dump(run_cfgs, cfglist)
+      
+      strlog = f"Effective Test Accuracy = {eff_test_acc:.2f}, pval={pval:.4f}"
+      print(f"{txt * len(strlog)}")    
+      print(f"Average Prediction Difference = {avg_pred_diff:.2f}")
+      print(strlog)
+      print(f"{txt * len(strlog)}\n")
+      
     
 
 def plotter_v1(cfgs,run_idx=1):

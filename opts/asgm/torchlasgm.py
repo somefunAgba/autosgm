@@ -23,7 +23,7 @@ class AGM():
     Core algorithm implementation (Torch)
     '''
     def __init__(self, mlpf:LPF,vlpf:LPF,wlpf:LPF,esslpf:esLPF, 
-                use_optim_choice:bool, smooth_out:bool,maximize:bool, weight_decay:Tensor,eps:Tensor,betas:tuple,ss_init:Tensor,ss_end:Tensor) -> None:
+                use_optim_choice:bool, smooth_out:bool, maximize:bool, weight_decay:Tensor,eps:Tensor,betas:tuple,ss_init:Tensor,ss_end:Tensor) -> None:
         self.gradref = 0
         self.mlpf = mlpf
         self.vlpf = vlpf
@@ -43,7 +43,7 @@ class AGM():
         pass
     
     @torch.no_grad()
-    def compute(self,step:Tensor|int, step_c:Tensor|int, param:Tensor,       param_grad:Tensor,mk:Tensor,vk:Tensor,qk:Tensor,wk:Tensor,ss_k:Tensor, optparam:Tensor):
+    def compute(self,step:Tensor|int, step_c:Tensor|int, param:Tensor,       param_grad:Tensor,mk:Tensor,vk:Tensor,qk:Tensor,wk:Tensor,ss_k:Tensor, optparam:Tensor=None):
         
         # -1. input grad.
         # grad = gradi + (weight_decay*param)
@@ -54,16 +54,16 @@ class AGM():
             error.neg_()
             
         if self.use_optim_choice:
-            bmo, stepm = 0, step
+            bmo = 0
         else:
-            bmo, stepm = 10, step
+            bmo = 10
             
         # E[g]: input mean estimation
         errmean, mk = self.mlpf.compute(u=error, x=mk, 
-                        beta=self.beta_i, bmode=bmo, step=stepm)
+                        beta=self.beta_i, bmode=bmo, step=step)
             
-        # - change in parameters (weights)
-        delta_param = errmean.mul_(1)
+        # - placeholder: change in parameter (weight)
+        delta_param = errmean.add_(0)
                 
         # -2. linear step-size fcn.
         if optparam is not None:
@@ -86,19 +86,16 @@ class AGM():
                     u=self.ss_end,x_init=self.ss_init,noise_k=0,beta=self.beta_ss,step=step_c
                     )
                 
-                delta_param.div_(gradnorm_den)
+                delta_param.div_(gradnorm_den) #.mul(ss_k)
                 delta_param.mul_(ss_k)
                 
                 alphap = (ss_k).div(gradnorm_den) 
-                
                 # delta_param.mul_(alphap) 
                 
                 # ss_k = self.ss_init
                 # delta_param.div_( 
                     # (errvar.sqrt() / (ss_k)).add_(self.eps / (ss_k)) 
                     # )
-                
-                
             else: 
                 # no variance estimation added to alpha_p.
                 alphap = ss_k 
@@ -112,14 +109,14 @@ class AGM():
             # E[w] output parameter smoothing
             paramf, qk = self.wlpf.compute(u=wk, x=qk,
                     beta=self.beta_o, bmode=0,  step=step)
-            # pass values to network's placeholder.
+            # pass values to network's parameter placeholder.
             param.copy_(paramf)
 
         else:
-            # rightly assume param is smooth
+            # assume param is smooth
             # update
             wk.add_(delta_param)
-            # pass values to network's placeholder.
+            # pass values to network's parameter placeholder.
             param.copy_(wk)
             
         # END
@@ -131,15 +128,15 @@ class PID(Optimizer):
 
     """Implements: "Stochastic" Gradient Method (Torch), an automatic learning algorithm.
     
-    The SGM is a discrete-time PID structure, with low-pass regularization.
+    The SGM is a discrete-time PID structure, with lowpass regularizing components.
     
     PID structure is a discrete-time structure with Proportional + Integral + Derivative components
     
-    The proportional gain component is the SGM's "step-size" (or learning rate) which represents a linear correlation variable.
+    The proportional gain component is the effective step-size in the optimal "step-size" (or learning rate) which represents a linear correlation variable.
     
-    The derivative component is the first-order gradient of the objective function wrt the parameter
+    The derivative gain component is the variance estimation (or normalizing component) in the SGM's optimal "step-size".
     
-    The integral component is the additive means of adaptation using the step-size and first-order gradient
+    The integral component is the additive means of disctrete-time parameter adaptation using the step-size and first-order gradient of a scalar-valued objective-function.
     
     Author: Oluwasegun Ayokunle Somefun. somefuno@oregonsate.edu 
         
@@ -147,9 +144,9 @@ class PID(Optimizer):
         
     Date: (Changes)
 
-        2022. Nov. (Heavy Refactoring + added model parameter (weight) adaptation)
+        2022. Nov. (added parameter (weight) adaptation)
         
-        2023. Jan. (Heavy Refactoring + added step-size adaptation)
+        2023. Jan. (added effective step-size variation)
 
     Args:
         params(iterable, required): iterable of parameters to optimize or dicts defining parameter groups
@@ -183,14 +180,16 @@ class PID(Optimizer):
         .. AutoSGM: Automatic (Stochastic) Gradient Method _somefuno@oregonstate.edu
 
     Example:
-        >>> # optimizer = asgm.PID(model.parmaeters(), ss_init=1e-3,steps_per_epoch=100)
+        >>> import opts.asgm.torchlasgm as asgm
+        >>> ...
         
-        >>> optimizer = asgm.PID(model.parmaeters(), ss_init=1e-3, ss_end=1e-5, betai=1e-1, steps_per_epoch=100, weight_decay=0)
+        >>> optimizer = asgm.PID(model.parameters(), ss_init=1e-3,steps_per_epoch=100)
         
+        >>> optimizer = asgm.PID(model.parameters(), ss_init=1e-3, ss_end=1e-5, betai=1e-1, steps_per_epoch=100, weight_decay=0)
+        
+        >>> ...
         >>> optimizer.zero_grad()
-        
         >>> loss_fn(model(input), target).backward()
-        
         >>> optimizer.step
     """
     # 
@@ -220,7 +219,7 @@ class PID(Optimizer):
         # step-size.
         self.ss_init = torch.tensor(ss_init, dtype=torch.float, device=self.device)
         self.ss_end = torch.tensor(ss_end, dtype=torch.float, device=self.device)
-        # convergence accuracy to ss_end.
+        # error in the convergence accuracy to ss_end.
         eps_ss = torch.tensor(eps_ss, dtype=torch.float, device=self.device)
         # steps
         self.beta_ss = torch.exp(torch.divide(torch.log(eps_ss),steps_per_epoch))
@@ -355,7 +354,7 @@ class PID(Optimizer):
 
             # Actual Learning Event: 
             alphaps = control_event(asgm, loss,
-                params_with_grad, grads, mk, vk, qk, wk, ss_k, group['steps_per_epoch'], state_steps, self.device, optparams_with_grad
+                params_with_grad, grads, mk, vk, qk, wk, ss_k, group['steps_per_epoch'], state_steps, optparams_with_grad
             )
 
         return loss, state['step']
@@ -365,21 +364,20 @@ class PID(Optimizer):
 @torch.no_grad()
 def control_event(asgm: AGM, loss:Tensor, 
             params: List[Tensor], grads: List[Tensor], 
-            mk: List[Tensor], vk: List[Tensor], qk: List[Tensor], wk: List[Tensor], ss_k: List[Tensor], steps_per_epoch:int, state_steps: List[Tensor], cdevice:any, optparams: List[Tensor] | None)->Tensor:
+            mk: List[Tensor], vk: List[Tensor], qk: List[Tensor], wk: List[Tensor], ss_k: List[Tensor], steps_per_epoch:int, state_steps: List[Tensor], optparams: List[Tensor] | None)->Tensor:
     r"""Functional API that computes the AutoSGM control/learning algorithm for each parameter in the model.
 
     See : [in future] class:`~torch.optim.AutoSGM` for details.
     """
 
     step = state_steps[0]
-    
-    # (AutoSGM) PID structure on step-size reduced to a stateless LPF
+
     # cyclic step in each epoch
     step_c = (((step-1) % steps_per_epoch) + 1)
     
     # - At each step, adapt parameters (weights of the model) using 
     # (AutoSGM) PID structure.
-    # E[param] = E[param + alphap*sy] = E[param] + alphap*E[grad]  
+    # Et[param] = Et[param + alphap*Et[grad] ] = Et[param] + alphap*Et[grad]  
     alphaps = []
     # for each parameter in the model.
     for i, param in enumerate(params):

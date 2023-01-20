@@ -17,14 +17,15 @@ from typing import List,Union,Optional
 class AGM():
     ''' Gradient Method: automatic algorithm for learning/control/estimation
 
-    Core algorithm implementation (Torch)
+    Core algorithm implementation (Numpy)
     '''
-    def __init__(self, mlpf:LPF,vlpf:LPF,wlpf:LPF, 
-                use_optim_choice:bool, smooth_out:bool,maximize:bool, weight_decay,eps,betas:tuple) -> None:
+    def __init__(self, mlpf:LPF,vlpf:LPF,wlpf:LPF,esslpf:esLPF, 
+                use_optim_choice:bool, smooth_out:bool, maximize:bool, weight_decay, eps, betas:tuple,ss_init,ss_end) -> None:
         self.gradref = 0
         self.mlpf = mlpf
         self.vlpf = vlpf
         self.wlpf = wlpf
+        self.esslpf = esslpf
         self.use_optim_choice = use_optim_choice
         self.smooth_out = smooth_out
         self.maximize = maximize
@@ -33,10 +34,13 @@ class AGM():
         self.beta_o = betas[2]
         self.beta_n = betas[1]
         self.beta_i = betas[0]
+        self.beta_ss = betas[3]
+        self.ss_init = ss_init
+        self.ss_end = ss_end 
         pass
     
-    def compute(self,step:int,param,param_grad,
-                mk,vk,qk,wk,ss_k,optparam):
+    def compute(self,step:int,step_c:int,param,param_grad,
+                mk,vk,qk,wk,ss_k,optparam=None):
         
         # -1. input grad.
         # grad = gradi + (weight_decay*param)
@@ -47,14 +51,15 @@ class AGM():
             error = -error
             
         if self.use_optim_choice:
-            bmo, stepm = 0, step
+            bmo = 0
         else:
-            bmo, stepm = 10, step
+            bmo = 10
+            
         # E[g]: input mean estimation
         errmean, mk = self.mlpf.compute(u=error, x=mk, 
-                        beta=self.beta_i, bmode=bmo, step=stepm)
+                        beta=self.beta_i, bmode=bmo, step=step)
             
-        # - change in parameters (weights)
+        # - placeholder: change in parameter (weight)
         delta_param = errmean+0
                 
         # -2. linear step-size fcn.
@@ -69,15 +74,19 @@ class AGM():
                 # derivative mode: variance estimation / normalization
                 # inner product: <g,g> = E[g^2] 
                 # gradnorm = grad.norm("fro")
+                
                 errsq =  error*error
                 errvar, vk = self.vlpf.compute(u=errsq, x=vk, beta=self.beta_n, bmode=10, step=step)
+                gradnorm_den = (np.sqrt(errvar)+(self.eps))
+                
+                ss_k = self.esslpf.compute(
+                    u=self.ss_end,x_init=self.ss_init,noise_k=0,beta=self.beta_ss,step=step_c
+                    )
             
-                    
-                alphap = ((ss_k)/(np.sqrt(errvar)+(self.eps)))
+                delta_param = (delta_param/gradnorm_den)*ss_k
+                alphap = (ss_k)/gradnorm_den
                 #
-                den = (np.sqrt(errvar)/(ss_k)) + (self.eps/(ss_k))
-                # alphap = (1 / den) 
-                delta_param = delta_param/(den)
+                # delta_param = delta_param/((np.sqrt(errvar)/(ss_k)) + (self.eps/(ss_k)))
             else: 
                 # no variance estimation added to alpha_p.
                 alphap = ss_k 
@@ -95,10 +104,10 @@ class AGM():
             param = paramf
 
         else:
-            # rightly assume param is smooth
+            # assume param is smooth
             # update
             wk += (delta_param)
-            # pass values to network's placeholder.
+            # pass values to network's parameter placeholder.
             param = wk
             
         # END
@@ -109,17 +118,17 @@ class AGM():
 
 class PID():
 
-    """Implements: "Stochastic" Gradient Method (Numpy), an automatic learning algorithm.
+    """Implements: "Stochastic" Gradient Method (NumPy), an automatic learning algorithm.
     
-    The SGM is a discrete-time PID structure, with low-pass regularization.
+    The SGM is a discrete-time PID structure, with lowpass regularizing components.
     
     PID structure is a discrete-time structure with Proportional + Integral + Derivative components
     
-    The proportional gain component is the SGM's "step-size" (or learning rate) which represents a linear correlation variable.
+    The proportional gain component is the effective step-size in the optimal "step-size" (or learning rate) which represents a linear correlation variable.
     
-    The derivative component is the first-order gradient of the objective function wrt the parameter
+    The derivative gain component is the variance estimation (or normalizing component) in the SGM's optimal "step-size".
     
-    The integral component is the additive means of adaptation using the step-size and first-order gradient
+    The integral component is the additive means of disctrete-time parameter adaptation using the step-size and first-order gradient of a scalar-valued objective-function.
     
     Author: Oluwasegun Ayokunle Somefun. somefuno@oregonsate.edu 
         
@@ -127,9 +136,9 @@ class PID():
         
     Date: (Changes)
 
-        2022. Nov. (Heavy Refactoring + added model parameter (weight) adaptation)
+        2022. Nov. (parameter (weight) adaptation)
         
-        2023. Jan. (Heavy Refactoring + added step-size adaptation)
+        2023. Jan. (Heavy Refactoring + added effective step-size variation)
 
     Args:
         params(iterable, required): iterable of parameters to optimize or dicts defining parameter groups
@@ -159,12 +168,14 @@ class PID():
         
         optparams (optional): optimum param, if known, else default=None
 
-
         .. AutoSGM: Automatic (Stochastic) Gradient Method _somefuno@oregonstate.edu
 
     Example:
         >>> import opts.asgm.nplasgm as asgm
-        >>> # optimizer = asgm.PID(param_init, steps_per_epoch=1, ss_init=1e-3, beta_i=0.9, weight_decay=1e-5, optparams=None):
+        >>> ...
+        >>> optimizer = asgm.PID(param_init, steps_per_epoch=1, ss_init=1e-3, beta_i=0.9, weight_decay=1e-5):
+        >>> ...
+        >>> optimizer.step
     """
 
     # 
@@ -175,7 +186,7 @@ class PID():
         if not 0.0 <= weight_decay:
             raise ValueError(f"Invalid weight decay value: {weight_decay}")
 
-        self.ssslpf = esLPF()
+        self.esslpf = esLPF()
         self.mlpf = LPF(inplace=True)
         self.vlpf = LPF(inplace=True)
         self.wlpf = LPF(inplace=True)
@@ -228,18 +239,15 @@ class PID():
         # list of parameters, gradients, gradient notms
         # params_with_grad = []
         # grads = []
+        asgm = AGM(self.mlpf,self.vlpf,self.wlpf,self.esslpf,
+            self.use_optim_choice,self.smooth_out,self.maximize, 
+            self.weight_decay, self.eps, self.betas, self.ss_init, self.ss_end) 
 
         # list to hold step count
         state_steps = []
 
         # list to hold one-pole filter memory
-        mk, vk, qk, wk = [], [], [],[]
-
-        # beta_ss = self.betas[3]
-                        
-        asgm = AGM(self.mlpf,self.vlpf,self.wlpf,
-        self.use_optim_choice,self.smooth_out,self.maximize, 
-        self.weight_decay, self.eps,self.betas) 
+        mk, vk, qk, wk, ss_k = [], [], [], [], []
 
         for i,p in enumerate(params):
 
@@ -257,11 +265,14 @@ class PID():
                 state['q'] = np.copy(p) #np.zeros_like(p) # if biased.
 
                 state['w'] = np.copy(p)
+                
+                state['ss'] = self.ss_init*np.ones_like(p)
             
             mk.append(state['m'])
             vk.append(state['v'])
             qk.append(state['q'])
             wk.append(state['w'])
+            ss_k.append(state['ss'])
 
             # update the step count by 1.
             state['step'] += 1
@@ -271,8 +282,8 @@ class PID():
         
         # Compute this algorithm for each parameter    
         ## Actual Learning Event: 
-        alphaps, ss_k = control_event(asgm, self.ssslpf, loss,
-            params, grads, mk, vk, qk, wk, self.steps_per_epoch, state_steps, self.ss_init, self.ss_end, self.beta_ss, self.optparams
+        alphaps = control_event(asgm, loss,
+            params, grads, mk, vk, qk, wk, ss_k, self.steps_per_epoch, state_steps, self.optparams
         )
         
         # update changes to low-pass filter states: needed here
@@ -281,17 +292,17 @@ class PID():
             state['m'] = mk[i]
             state['v'] = vk[i]
             state['q'] = qk[i]
-            state['a'] = wk[i]
+            state['w'] = wk[i]
+            state['ss'] = ss_k[i]
 
         return params, state['step'], alphaps
 
 
 
 # Functional Interface
-def control_event(asgm: AGM, ssslpf:esLPF, loss, 
-            params, grads, mk, vk, qk, wk, 
+def control_event(asgm: AGM, loss, 
+            params, grads, mk, vk, qk, wk, ss_k,
             steps_per_epoch:int, state_steps: List[int],
-            ss_init, ss_end, beta_ss, 
             optparams):
     
     r"""Functional API that computes the AutoSGM control/learning algorithm for each parameter in the model.
@@ -301,15 +312,12 @@ def control_event(asgm: AGM, ssslpf:esLPF, loss,
 
     step = state_steps[0]
     
-    # - At each step, stably adapt step_size_init to step_size_end using 
-    # (AutoSGM) PID structure reduced to a stateless LPF
-    # cyclic step
-    stepc = (((step-1) % steps_per_epoch) + 1)
-    ss_k = ssslpf.compute(u=ss_end, x_init=ss_init, beta=beta_ss, step=stepc)
+    # cyclic step in each epoch
+    step_c = (((step-1) % steps_per_epoch) + 1)
     
     # - At each step, adapt parameters (weights of the model) using 
     # (AutoSGM) PID structure.
-    # E[param] = E[param + alphap*sy] = E[param] + alphap*E[grad]  
+    # Et[param] = Et[param + alphap*Et[grad]] = Et[param] + alphap*Et[grad]  
     alphaps = []
     # for each parameter in the model.
     for i, _ in enumerate(params):
@@ -317,7 +325,8 @@ def control_event(asgm: AGM, ssslpf:esLPF, loss,
             optparam = optparams[i]
         else:
             optparam = None
-        params[i], alphap = asgm.compute(step,params[i],grads[i],mk[i],vk[i],qk[i],wk[i],ss_k,optparam)
+        params[i], alphap = asgm.compute(step,step_c, 
+                    params[i],grads[i],mk[i],vk[i],qk[i],wk[i],ss_k[i],optparam)
         alphaps.append(alphap)
         
-    return alphaps, ss_k
+    return alphaps

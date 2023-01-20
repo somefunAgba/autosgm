@@ -3,6 +3,8 @@
 <img src="./lasgm_blkview.svg" width="500">
 
 ## What is this library about? (short description)
+This library implements the AutoSGM learning algorithm. 
+AutoSGM is a unifying framework for accelerated learning.
 
 
 ## Getting Started (installing or setting up)
