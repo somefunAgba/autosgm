@@ -578,9 +578,9 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
         run_cfgs['med_stat'] = med_stat
         run_cfgs['pval'] = pval
       
-      strlog = f"Effective Test Accuracy = {eff_test_acc:.2f}, pval={pval:.4f}"
+      strlog = f"Effective Test Accuracy = {eff_test_acc:.2f}%, pval={pval:.4f}"
       print(f"{txt * len(strlog)}")    
-      print(f"Average Prediction Difference = {avg_pred_diff:.2f}")
+      print(f"Average Prediction Difference = {avg_pred_diff:.2f}%")
       print(strlog)
       print(f"{txt * len(strlog)}\n")   
       
