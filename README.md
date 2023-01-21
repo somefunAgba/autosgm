@@ -7,14 +7,14 @@ A PyTorch implementation of the automatic learning (or control) algorithm.
 ## What is this library about?
 This library implements the *first-order gradient method*, for learning the parameters in a pre-defined (artificial) neural network (any appropriate composition of differntiable functions) that is used to fit a data-set. 
 
-This method automatically arises as the empirical form of the best possible learning algorithm (*minimum bayes risk control function*) in the class of linear functions. We call it **AutoSGM**.
+This method automatically arises as the empirical form of the best possible learning algorithm (*minimum bayes risk control function*) in the class of linear control functions. We call it **AutoSGM**.
 
-Standing on the shoulders of about 7 decades of literature, we provide a clearer understanding of the three practical accelerated learning variants of the (Stochastic) Gradient Method (SGM), namely: *Heavy ball*, *Nesterov Accelerated Gradient*, *Adaptive Moment Estimation* by presenting AutoSGM as their unifying representation for accelerated learning.
+Standing on the shoulders of about 7 decades of literature, we provide a clearer understanding of the three practical accelerated learning variants of the (Stochastic) Gradient Method (SGM), namely: *Polyak's Heavy ball*, *Nesterov Accelerated Gradient*, *Adaptive Moment Estimation* by presenting AutoSGM as their unifying representation for accelerated learning.
 
 
 ## Getting Started (installing or setting up)
 
-- Clone the repo.
+- Download or Clone (cloning requires `git` on your machine).
 ```
 git clone https://github.com/somefunagba/autosgm.git
 ```
@@ -33,6 +33,7 @@ Next, the folders in the root directory are structured as shown below:
   |-- expstore\
   |-- opts\
 ```
+The ` opts ` folder contains the source-code for AutoSGM.
 
 ### Demo Scripts
 There are included demo files that both help to demonstrate example neural network training with PyTorch, using AutoSGM.
@@ -65,10 +66,9 @@ The code in the ``demo[x]show.ipynb`` files, where `x` is an integer, mostly fol
 - Construct Model (Differentiable Function) with  necessary methods.
 - Run the Network Modeling (Training)
 
-The ` opts ` folder contains the source-code for AutoSGM.
-The ` data ` folder stores raw data which form the basis for the whole learning setup
+The ` data ` folder stores raw data which form the basis for the whole learning setup.
 The ` arcs ` folder is meant to store any custom neural network architecture.
-The `expstore` folder stores training information, graphic plots and saved models, when each `demo[x]show.ipynb` file is run
+The `expstore` folder stores training information, graphic plots and saved models, when each `demo[x]show.ipynb` file is run.
 
 ## API: Quick Use case (how tos?)
 
@@ -87,7 +87,7 @@ optimizer = asgm.PID(model.parameters(),steps_per_epoch=num_batches)
 ```
 Other than the two arguments above, there are other options in the function's interface, but they, most often, rarely need not be changed from their defaults.
 
-The other options are well documented in the AutoSGM source-code.
+The other options are documented in the AutoSGM source-code.
 
 
 ## Bugs, Issues or Questions (need help?)

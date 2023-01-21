@@ -81,10 +81,16 @@ class AGM():
                 errsq =  error.mul(error.conj())
                 errvar, vk = self.vlpf.compute(u=errsq, x=vk, beta=self.beta_n, bmode=10, step=step)
                 gradnorm_den = (errvar.sqrt().add_(self.eps))
-                if step_c ==  1:
-                    self.ss_init = (param.max().abs().add(1e-3))/param.nelement()
-                    print(self.ss_init)
-                    
+                
+                # non-uniform effective step-size.
+                
+                # ss_init = self.ss_init.mul(1)
+                # if step_c ==  1:
+                #     self.ss_init = (param.abs().max()/param.nelement())
+                #     # if step == 1:
+                #         # print(self.ss_init)
+            
+                
                 ss_k = self.esslpf.compute(
                     u=self.ss_end,x_init=self.ss_init,noise_k=0,beta=self.beta_ss,step=step_c
                     )
@@ -383,6 +389,21 @@ def control_event(asgm: AGM, loss:Tensor,
     # Et[param] = Et[param + alphap*Et[grad] ] = Et[param] + alphap*Et[grad]  
     alphaps = []
     # for each parameter in the model.
+    
+    # uniform effective step-size.
+    if step_c == 1:
+        max_params, param_numels = [],[]
+        for i, param in enumerate(params):
+            #max_params.append(param.abs().max())
+            max_params.append(param.square().sum())
+            # max_params.append(torch.linalg.vector_norm(param,2))
+            param_numels.append(param.nelement())
+        pmax = torch.tensor(max_params).sum().sqrt()
+        dparam = torch.tensor(param_numels).sum()
+        asgm.ss_init.copy_(2*pmax/dparam)
+        if step_c == 1:
+            print(asgm.ss_init)
+    
     for i, param in enumerate(params):
         if optparams is not None:
             optparam = optparams[i]
