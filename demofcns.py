@@ -29,11 +29,8 @@ from typing import List, Union, Optional
 #
 import matplotlib.pyplot as plt 
 import matplotlib.ticker as ticker
-plt.rcParams.update({
-    "text.usetex": True,
-    "font.family": "sans-serif", # serif
-    "font.sans-serif": "Helvetica", # Times, Palatino, Computer Modern Roman
-})
+
+    
 from mpl_toolkits import mplot3d
 from mpl_toolkits import mplot3d
 from mpl_toolkits import mplot3d
@@ -508,6 +505,19 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
     df.to_csv(thisPATH+".csv")
     # to_csv's index is true by default, can change to false to remove row ids
     
+    
+    # - Write current cfg to the stores folder for book-keeping
+    run_cfgs = copy.deepcopy(cfgs)
+    run_cfgs['eff_test_accuracy'] = 'None'
+    run_cfgs['med_stat'] = 'None'
+    run_cfgs['pval'] = 'None'
+    run_cfgs["device"] = self.device
+      
+    PATHruncfg = f"{storedir}/{mdl_name_dir}/stores/exp_cfg"
+    os.makedirs(PATHruncfg, exist_ok=True)
+      
+    thisPATH = f"{PATHruncfg}/cfgs_{PathStr}.json"
+
     # Reproducibility metrics
     if runs > 1 and self.outs_class:
       # - Compute Best Prediction Consistency across Runs
@@ -560,36 +570,50 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       # if pval isn't 0.5, we would reject the null hypothesis at a confidence level of 5%, concluding that the pred. diff across runs is significant.
       
       # - Write current cfg to the stores folder for book-keeping
-      run_cfgs = copy.deepcopy(cfgs)
       run_cfgs['eff_test_accuracy'] = eff_test_acc
-      
       try:
         run_cfgs['med_stat'] = med_stat[0]
         run_cfgs['pval'] = pval[0]
       except:
         run_cfgs['med_stat'] = med_stat
         run_cfgs['pval'] = pval
-      run_cfgs["device"] = self.device
-      
-      PATHruncfg = f"{storedir}/{mdl_name_dir}/stores/exp_cfg"
-      os.makedirs(PATHruncfg, exist_ok=True)
-      
-      thisPATH = f"{PATHruncfg}/cfgs_{PathStr}.json"
-      with open(thisPATH, 'w') as cfglist:
-        json.dump(run_cfgs, cfglist)
       
       strlog = f"Effective Test Accuracy = {eff_test_acc:.2f}, pval={pval:.4f}"
       print(f"{txt * len(strlog)}")    
       print(f"Average Prediction Difference = {avg_pred_diff:.2f}")
       print(strlog)
-      print(f"{txt * len(strlog)}\n")
+      print(f"{txt * len(strlog)}\n")   
+    # save
+    with open(thisPATH, 'w') as cfglist:
+        json.dump(run_cfgs, cfglist)
       
-    
+      
+cmd_exists = lambda x: shutil.which(x) is not None
+if cmd_exists('latex'):
+    plt.rcParams.update({
+        "text.usetex": True,
+        "font.family": "sans-serif", # serif
+        "font.sans-serif": "Helvetica", # Times, Palatino, Computer Modern Roman
+    })
+else:
+    plt.rcParams.update({
+        "text.usetex": False,
+        "mathtext.fontset": "cm",
+    })
+
 
 def plotter_v1(cfgs,run_idx=1):
-  pathstr = cfgs['pathstr']
-  storedir = cfgs['storedir']
-  mdl_name_dir = cfgs['mdl_name_dir']
+
+  try:
+    saved_cfgs_path = f"{storedir}/{mdl_name_dir}/stores/exp_cfg/cfgs_{pathstr}.json"
+    with open(saved_cfgs_path, 'r') as cfglist:
+            scfgs = json.load(cfglist)
+  except:
+    scfgs = cfgs
+          
+  pathstr = scfgs['pathstr']
+  storedir = scfgs['storedir']
+  mdl_name_dir = scfgs['mdl_name_dir']
 
   # print(df.head()) print(df.tail())
 
@@ -625,7 +649,7 @@ def plotter_v1(cfgs,run_idx=1):
 
 
   # Line plot ----------
-  figsz = (3.5, 2.5)
+  figsz = (3*1.5, 2*1.5)
   fig1 = plt.figure(figsize=figsz,tight_layout=True)
   gridpanel  = gridspec.GridSpec(1,1,)
   ax1 = plt.subplot(gridpanel[0])
@@ -633,21 +657,21 @@ def plotter_v1(cfgs,run_idx=1):
   # Plot training and validation curves
   # fig, ax1 = plt.subplots(figsize=figsz)
   color = 'tab:red'
-  l1 = ax1.plot(epochs_t, train_loss_per_run.values, linestyle='dashed', c=color,alpha=0.1, label=r"\rm{loss (train)}")
+  l1 = ax1.plot(epochs_t, train_loss_per_run.values, linestyle='dashed', c=color,alpha=0.1, label=r"$\mathrm{\mathsf{loss\/(train)}}$")
   l2 = ax1.plot(epochs_t, dev_loss_per_run.values, c=color,
-  alpha=0.5, label=r"\rm{loss (test)}")
+  alpha=0.5, label=r'$\mathrm{\mathsf{loss\/(test)}}$')
   # marker='.', markersize=3, markevery=10
-  ax1.set_xlabel(r"\rm{epochs}")
-  ax1.set_ylabel(r"\rm{loss}", c=color)
+  ax1.set_xlabel(r"$\mathrm{\mathsf{epochs}}$")
+  ax1.set_ylabel(r'$\mathrm{\mathsf{loss}}$', c=color)
   # ax1.tick_params(axis='y', labelcolor=color)
   # ax1.set_ylim(-0.01,3)
 
   color = 'tab:blue'
   ax12 = ax1.twinx()
-  l3 = ax12.plot(epochs_t, train_acc_per_run.values, linestyle='dashed', c=color,alpha=0.1, label=r"\rm{accuracy (train)}")
+  l3 = ax12.plot(epochs_t, train_acc_per_run.values, linestyle='dashed', c=color,alpha=0.1, label=r"$\mathrm{\mathsf{accuracy\/(train)}}$")
   l4 = ax12.plot(epochs_t, dev_acc_per_run.values, c=color,
-  alpha=0.5, label=r"\rm{accuracy (test)}")
-  ax12.set_ylabel(r"$\mathrm{accuracy}$", c=color)
+  alpha=0.5, label=r"$\mathrm{\mathsf{accuracy\/(test)}}$")
+  ax12.set_ylabel(r"$\mathrm{\mathsf{accuracy}}$", c=color)
   # ax1.tick_params(axis='y', labelcolor=color)
   # ax1.set_ylim(-0.01,3)
 
@@ -658,31 +682,31 @@ def plotter_v1(cfgs,run_idx=1):
 
   # Line plot ----------
   if cfgs["runs"] > 1:
-    path_preds= f"{storedir}/{mdl_name_dir}/stores/pdiff/pdiff_{pathstr}"
-    dfp = pd.read_csv(path_preds+".csv")
-    dev_preds_per_run = dfp.iloc[0:,1]
+      path_preds= f"{storedir}/{mdl_name_dir}/stores/pdiff/pdiff_{pathstr}"
+      dfp = pd.read_csv(path_preds+".csv")
+      dev_preds_per_run = dfp.iloc[0:,1]
 
 
-    PATHruncfg = f"{storedir}/{mdl_name_dir}/stores/exp_cfg"
-    os.makedirs(PATHruncfg, exist_ok=True)
+      PATHruncfg = f"{storedir}/{mdl_name_dir}/stores/exp_cfg"
+      os.makedirs(PATHruncfg, exist_ok=True)
 
-    saved_cfgs_path = f"{storedir}/{mdl_name_dir}/stores/exp_cfg/cfgs_{pathstr}.json"
-    with open(saved_cfgs_path, 'r') as cfglist:
-            scfgs = json.load(cfglist)
+      saved_cfgs_path = f"{storedir}/{mdl_name_dir}/stores/exp_cfg/cfgs_{pathstr}.json"
+      with open(saved_cfgs_path, 'r') as cfglist:
+          scfgs = json.load(cfglist)
 
 
-    figsz = (3, 2)
-    fig2 = plt.figure(figsize=figsz,tight_layout=True)
-    gridpanel  = gridspec.GridSpec(1,1,)
-    ax2 = plt.subplot(gridpanel[0])
+      figsz = (3*1.5, 2*1.5)
+      fig2 = plt.figure(figsize=figsz,tight_layout=True)
+      gridpanel  = gridspec.GridSpec(1,1,)
+      ax2 = plt.subplot(gridpanel[0])
 
-    color = 'goldenrod'
-    ax2.plot(dev_preds_per_run.values,'.', c=color, 
-    alpha=0.9, markersize=3)
-    ax2.set_xlabel(r"\rm{comparisons}")
-    ax2.set_ylabel(r"\rm{prediction difference}")
-    # ax1.set_ylim(-0.01,3)
-    # ax2.legend(loc="best", fontsize=8)
+      color = 'goldenrod'
+      ax2.plot(dev_preds_per_run.values,'.', c=color, 
+      alpha=0.9, markersize=3)
+      ax2.set_xlabel(r"$\mathrm{\mathsf{comparisons}}$")
+      ax2.set_ylabel(r"$\mathrm{\mathsf{prediction\/difference}}$")
+      # ax1.set_ylim(-0.01,3)
+      # ax2.legend(loc="best", fontsize=8)
 
-    plt.show()
-    fig2.savefig(f"{storedir}/{mdl_name_dir}/stores/pred_diffs_runs.png", dpi=300)
+      plt.show()
+      fig2.savefig(f"{storedir}/{mdl_name_dir}/stores/pred_diffs_runs.png", dpi=300)

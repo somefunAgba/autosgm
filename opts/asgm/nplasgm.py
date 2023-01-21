@@ -319,6 +319,24 @@ def control_event(asgm: AGM, loss,
     # (AutoSGM) PID structure.
     # Et[param] = Et[param + alphap*Et[grad]] = Et[param] + alphap*Et[grad]  
     alphaps = []
+    
+    # uniform initial effective step-size (rough linear correlation estimation).
+    if step == 1:
+        # calc.
+        sum_params, param_numels = [],[]
+        for i, param in enumerate(params):
+            sum_params.append(np.sum(np.square(param)))
+            param_numels.append(np.size(param))
+        pvec_norm_2 = np.sqrt(np.sum(np.array(sum_params)))
+        dparam = np.sum(np.array(param_numels))
+        ss_init_calc = (pvec_norm_2/dparam)
+        # cond. use
+        if (ss_init_calc < 1) and (ss_init_calc < asgm.ss_init): asgm.ss_init += (ss_init_calc)
+        if (ss_init_calc < 1) and (ss_init_calc > asgm.ss_init): asgm.ss_init = (ss_init_calc)
+        # debug
+        if step == 1: print(f"ss0: {asgm.ss_init:.2f}")
+    
+    
     # for each parameter in the model.
     for i, _ in enumerate(params):
         if optparams is not None:

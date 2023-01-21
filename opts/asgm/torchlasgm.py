@@ -82,15 +82,7 @@ class AGM():
                 errvar, vk = self.vlpf.compute(u=errsq, x=vk, beta=self.beta_n, bmode=10, step=step)
                 gradnorm_den = (errvar.sqrt().add_(self.eps))
                 
-                # non-uniform effective step-size.
-                
-                # ss_init = self.ss_init.mul(1)
-                # if step_c ==  1:
-                #     self.ss_init = (param.abs().max()/param.nelement())
-                #     # if step == 1:
-                #         # print(self.ss_init)
-            
-                
+
                 ss_k = self.esslpf.compute(
                     u=self.ss_end,x_init=self.ss_init,noise_k=0,beta=self.beta_ss,step=step_c
                     )
@@ -390,19 +382,21 @@ def control_event(asgm: AGM, loss:Tensor,
     alphaps = []
     # for each parameter in the model.
     
-    # uniform effective step-size.
-    if step_c == 1:
-        max_params, param_numels = [],[]
+    # uniform initial effective step-size (rough linear correlation estimation).
+    if step == 1:
+        # calc.
+        sum_params, param_numels = [],[]
         for i, param in enumerate(params):
-            #max_params.append(param.abs().max())
-            max_params.append(param.square().sum())
-            # max_params.append(torch.linalg.vector_norm(param,2))
+            sum_params.append(param.square().sum())
             param_numels.append(param.nelement())
-        pmax = torch.tensor(max_params).sum().sqrt()
+        pvec_norm_2 = torch.tensor(sum_params).sum().sqrt()
         dparam = torch.tensor(param_numels).sum()
-        asgm.ss_init.copy_(2*pmax/dparam)
-        if step_c == 1:
-            print(asgm.ss_init)
+        ss_init_calc=(pvec_norm_2/dparam)
+        # cond. use
+        if (ss_init_calc < 1) and (ss_init_calc < asgm.ss_init): asgm.ss_init.add(ss_init_calc)
+        if (ss_init_calc < 1) and (ss_init_calc > asgm.ss_init): asgm.ss_init.copy_(ss_init_calc)
+        # debug
+        if step == 1: print(f"ss0: {asgm.ss_init:.4f}")
     
     for i, param in enumerate(params):
         if optparams is not None:
