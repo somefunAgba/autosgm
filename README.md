@@ -16,12 +16,16 @@ Standing on the shoulders of about 7 decades of literature, we provide a clearer
 
 - Download or Clone (cloning requires `git` on your machine).
 ```
-git clone https://github.com/somefunagba/autosgm.git
+>> git clone https://github.com/somefunagba/autosgm.git
 ```
 
 - Installing necessary python libraries (if not on your machine).
 
-This library uses PyTorch and Numpy, so they should be installed as Python libraries on your machine or virtual environment (if not already present).
+This library uses PyTorch and Numpy, so they should be installed as Python libraries on your machine or virtual environment (if not already present). 
+For example, using pip:
+```
+>> pip install watermark numpy scipy pandas matplotlib torch torchvision 
+```
 
 ## Folder Structure 
 Next, the folders in the root directory are structured as shown below:

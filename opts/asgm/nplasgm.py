@@ -334,7 +334,7 @@ def control_event(asgm: AGM, loss,
         if (ss_init_calc < 1) and (ss_init_calc < asgm.ss_init): asgm.ss_init += (ss_init_calc)
         if (ss_init_calc < 1) and (ss_init_calc > asgm.ss_init): asgm.ss_init = (ss_init_calc)
         # debug
-        if step == 1: print(f"ss0: {asgm.ss_init:.2f}")
+        if step == 1: print(f"ss0: {asgm.ss_init:.6f}")
     
     
     # for each parameter in the model.

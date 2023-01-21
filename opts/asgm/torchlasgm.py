@@ -393,10 +393,10 @@ def control_event(asgm: AGM, loss:Tensor,
         dparam = torch.tensor(param_numels).sum()
         ss_init_calc=(pvec_norm_2/dparam)
         # cond. use
-        if (ss_init_calc < 1) and (ss_init_calc < asgm.ss_init): asgm.ss_init.add(ss_init_calc)
+        if (ss_init_calc < 1) and (ss_init_calc < asgm.ss_init): asgm.ss_init.add_(ss_init_calc)
         if (ss_init_calc < 1) and (ss_init_calc > asgm.ss_init): asgm.ss_init.copy_(ss_init_calc)
         # debug
-        if step == 1: print(f"ss0: {asgm.ss_init:.4f}")
+        if step == 1: print(f"ss0: {asgm.ss_init:.6f}")
     
     for i, param in enumerate(params):
         if optparams is not None:
