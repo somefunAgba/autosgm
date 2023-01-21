@@ -43,10 +43,21 @@ There are included demo files that both help to demonstrate example neural netwo
 |-- demo4show.ipynb
 |-- demo5show.ipynb
 ```
-
 In the root folder, locate and run ``demo1show.ipynb`` to check if your clone of this library is working right.
 
-The code outline in the ``demo[x]show.ipynb`` files, where x is an integer, mostly follows PyTorch's recipe and is:
+- `demo1show.ipynb`. 
+Trains a toy dataset on a custom fully connected network (Attention)
+
+- `demo2show.ipynb`.
+Trains FMNIST data on a custom fully connected network (Attention)
+
+- `demo4show.ipynb`.
+Trains FMNIST data on a custom convolutional network (LeNet)
+
+- `demo5show.ipynb`.
+Trains FMNIST data on a custom convolutional network (ResNet-6)
+
+The code in the ``demo[x]show.ipynb`` files, where `x` is an integer, mostly follows PyTorch's recipe and the outline is:
 
 - Load Required Libraries
 - Setup Configurations (Hyperparameters and so on)
@@ -63,17 +74,23 @@ The `expstore` folder stores training information, graphic plots and saved model
 
 > Note: This work is an ongoing research and the function interface might slightly change in the future.
 
+Load the library.
 ```
 import opts.asgm.torchlasgm as asgm
+...
 ```
 
+Say, you have defined a neural network called `model`, then the quickest and minimal way to use this for training, is to call an instance of the loaded AutoSGM
+and pass in the model parameters `model.parameters()` and the number of batches `num_batches` which is the data-size divided by batch-size.
 ```
-optimizer = asgm.PID(model.parameters(),steps_per_epoch=100)
+optimizer = asgm.PID(model.parameters(),steps_per_epoch=num_batches)
 ```
+Other than the two arguments above, there are other options in the function's interface, but they, most often, rarely need not be changed from their defaults.
 
+The other options are well documented in the AutoSGM source-code.
 
 
 ## Bugs, Issues or Questions (need help?)
 Please, create a new issue or email me.
 
-> Note also, that this document will be updated gradually.
+> Note also, that this doc. will also slightly change in the future.
