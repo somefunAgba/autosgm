@@ -47,16 +47,16 @@ There are included demo files that both help to demonstrate example neural netwo
 In the root folder, locate and run ``demo1show.ipynb`` to check if your clone of this library is working right.
 
 - `demo1show.ipynb`. 
-Trains a toy dataset on a custom fully connected network (Attention)
+Trains a custom fully connected network (Attention) on a toy dataset 
 
 - `demo2show.ipynb`.
-Trains FMNIST data on a custom fully connected network (Attention)
+Trains a custom fully connected network (Attention) on FMNIST data
 
 - `demo4show.ipynb`.
-Trains FMNIST data on a custom convolutional network (LeNet)
+Trains a custom convolutional network (LeNet) on FMNIST data
 
 - `demo5show.ipynb`.
-Trains FMNIST data on a custom convolutional network (ResNet-6)
+Trains a custom convolutional network (ResNet-6) on FMNIST data 
 
 The code in the ``demo[x]show.ipynb`` files, where `x` is an integer, mostly follows PyTorch's recipe and the outline is:
 
