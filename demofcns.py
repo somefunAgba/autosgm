@@ -516,7 +516,7 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
     PATHruncfg = f"{storedir}/{mdl_name_dir}/stores/exp_cfg"
     os.makedirs(PATHruncfg, exist_ok=True)
       
-    thisPATH = f"{PATHruncfg}/cfgs_{PathStr}.json"
+    thiscfgPATH = f"{PATHruncfg}/cfgs_{PathStr}.json"
 
     # Reproducibility metrics
     if runs > 1 and self.outs_class:
@@ -583,8 +583,9 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       print(f"Average Prediction Difference = {avg_pred_diff:.2f}")
       print(strlog)
       print(f"{txt * len(strlog)}\n")   
+      
     # save
-    with open(thisPATH, 'w') as cfglist:
+    with open(thiscfgPATH, 'w') as cfglist:
         json.dump(run_cfgs, cfglist)
       
       
@@ -685,15 +686,6 @@ def plotter_v1(cfgs,run_idx=1):
       path_preds= f"{storedir}/{mdl_name_dir}/stores/pdiff/pdiff_{pathstr}"
       dfp = pd.read_csv(path_preds+".csv")
       dev_preds_per_run = dfp.iloc[0:,1]
-
-
-      PATHruncfg = f"{storedir}/{mdl_name_dir}/stores/exp_cfg"
-      os.makedirs(PATHruncfg, exist_ok=True)
-
-      saved_cfgs_path = f"{storedir}/{mdl_name_dir}/stores/exp_cfg/cfgs_{pathstr}.json"
-      with open(saved_cfgs_path, 'r') as cfglist:
-          scfgs = json.load(cfglist)
-
 
       figsz = (3*1.5, 2*1.5)
       fig2 = plt.figure(figsize=figsz,tight_layout=True)
