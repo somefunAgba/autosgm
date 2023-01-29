@@ -73,7 +73,7 @@ Trains a custom convolutional network (ResNet-6) on FMNIST data
 
 ## API: Quick Use case (how tos?)
 
-> Note: This work is an ongoing research and the function interface might slightly change in the future.
+> This work is an ongoing research and the function interface might slightly change in the future.
 
 **Load AutoSGM**
 ```
@@ -94,11 +94,15 @@ For instance, the code snippet below disables auto initializing the effective st
 ```
 optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches, ss_init=1e-3, auto_init_ess=False)
 ```
+Also, the code snippet below changes the no-free-lunch constant used in auto initializing the effective step-size (learning rate), from a default of `0.25` to a user supplied value of `0.5`.
+```
+optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches, nfl_cte = 5e-1)
+```
 
-The other options are documented in the source-code for AutoSGM 
+Other possible options are documented in the source-code for AutoSGM 
 
 
-## Bugs, Issues or Questions (need help?)
-Please, create a new issue or email me.
+## Bugs, Issues, Suggestions or Questions (need help?)
+Please, create a new issue or email me at `somefuno@oregonstate.edu`.
 
-> Note also, that this doc. might slightly change in the future.
+> This doc. might slightly change in the future.

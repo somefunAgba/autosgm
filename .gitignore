@@ -1,4 +1,5 @@
 expstore
+data/CIFAR*
 data/FashionMNIST
 data/ipg_dummy_seizure
 demoseizure.ipynb
