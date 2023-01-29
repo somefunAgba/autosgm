@@ -92,7 +92,7 @@ Other than the two arguments above, there are other options in the function's in
 
 For instance, the code snippet below disables auto initializing the effective step-size (learning rate), and uses, instead, a supplied initial learning rate value of `1e-3`.
 ```
-optimizer = asgm.PID(model.parameters(),steps_per_epoch=num_batches, ss_init=1e-3, auto_init_ess=False)
+optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches, ss_init=1e-3, auto_init_ess=False)
 ```
 
 The other options are documented in the source-code for AutoSGM 
