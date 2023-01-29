@@ -90,7 +90,7 @@ optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches)
 ```
 Other than the two arguments above, there are other options in the function's interface, but they, most often, rarely need not be changed from their defaults.
 
-For instance, the code snippet below disables auto initializing the effective step-size (learning rate), and maked it use a supplied initial learning rate value of `1e-3`.
+For instance, the code snippet below disables auto initializing the effective step-size (learning rate), and uses, instead, a supplied initial learning rate value of `1e-3`.
 ```
 optimizer = asgm.PID(model.parameters(),steps_per_epoch=num_batches, ss_init=1e-3, auto_init_ess=False)
 ```
