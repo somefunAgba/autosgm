@@ -12,5 +12,7 @@ opts/asgm/old/*
 opts/elpf/testsel_torch.ipynb
 opts/elpf/testsel.ipynb
 demo3show.ipynb
+jobs
+*.nbconvert.ipynb
 data/t01
 *.yml
