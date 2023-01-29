@@ -1,23 +1,11 @@
-
-# Register Functions as a method of an existing Class Object
-# clsmethod
-def clsmethod(Class): #@save
-  def wrapper(obj):
-    setattr(Class, obj.__name__,obj)
-  return wrapper
-
-#
 import math,random,os,copy,time,glob,itertools,shutil,re, json,sys
 from scipy.stats import wilcoxon
 
-# terminal_output = open('dev/stdout','w') # linux
-terminal_output = open(1,'w') # win
-# terminal_error = open('dev/stderr','w')
-#
 import numpy as np
 
 #
-import torch
+import torch, gc
+torch.cuda.empty_cache()
 import torch.nn as nn
 import torch.nn.functional as tf
 from torch.utils.data import Dataset,DataLoader
@@ -47,11 +35,53 @@ import pandas as pd
 
 
 #
-from demofcns import *
 from opts.asgm.torchlasgm import PID
 
+#-------------SEED-----------------
+worker_seed = 2023
+def setseed(inc=0):
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    
+    # for redundancy
+    # set seed for technical reproducibility
+    myseed = worker_seed + inc
+    random.seed(myseed)
+    np.random.seed(myseed)
+    np.random.default_rng(myseed)
+    torch.manual_seed(myseed)    
+          
+    if torch.cuda.device_count() > 0:
+      torch.cuda.manual_seed(myseed)
+      torch.backends.cudnn.enabled = True
+      torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
+
+      # torch.backends.cuda.matmul.allow_tf32 = False
+      # torch.backends.cudnn.benchmark = False
+      # torch.backends.cudnn.deterministic = False
+      # torch.backends.cudnn.allow_tf32 = True
+
+class cseed_worker():
+  def __init__(self,inc=0):
+    self.inc = inc
+    
+  def seed_worker(self,workerid):
+    np.random.seed(worker_seed+self.inc)
+    random.seed(worker_seed+self.inc)
+
+cseedwk = cseed_worker()
+#-------------------------------------
+
+# Register Functions as a method of an existing Class Object
+# clsmethod
+def clsmethod(Class): #@save
+  def wrapper(obj):
+    setattr(Class, obj.__name__,obj)
+  return wrapper
 
 
+# 
 def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
   
   @clsmethod(thisNN)
@@ -88,12 +118,13 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
         # out:[Tensor,List[Tensor],Tensor]:
     # forward pass x -> loss
     
-    self.device = "cpu"
-    if self.devcnt > 0:
-      x = x.to("cuda")
-      self.device = "cuda"
-      ytrue = ytrue.to(torch.double)
-      ytrue = ytrue.to("cuda")
+    #TODO: # ytrue = ytrue.to(torch.half)
+    # self.device = "cpu"
+    # if self.devcnt > 0:
+    #   x = x.to("cuda")
+    #   self.device = "cuda"
+    #   ytrue = ytrue.to(torch.double)
+    #   ytrue = ytrue.to("cuda")
     
     logits = self.forward(x)
     if self.num_heads == 1:
@@ -206,17 +237,26 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
     
 
   @clsmethod(thisNN)
-  def learn_onestep(self:thisNN,x,ytrue):
+  def learn_onestep(self:thisNN,x,ytrue, scaler:torch.cuda.amp.grad_scaler=None):
 
+    # with torch.autocast(device_type='cuda', dtype=torch.float16):
     loss, yhat, corr = self.fwdpass_input_to_loss(x,ytrue)
     
     self.sgm.zero_grad(set_to_none=True)
     # for param in self.parameters():
     #   param.grad = None 
+    if scaler is not None: loss = scaler.scale(loss)
     loss.backward()
-    self.sgm.step()
     
-    return loss, yhat, corr
+    if scaler is not None:
+      scaler.step(self.sgm)
+    else:
+      self.sgm.step()
+    
+    # Updates the scale for next iteration.
+    if scaler is not None: scaler.update()
+    
+    return loss, yhat, corr, scaler
 
 
   @clsmethod(thisNN)
@@ -232,7 +272,22 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       predictions.append([])
     
     eval_loss, correct = 0., 0.
+    fa, tzeros = 0., 0.
+    
     for batch, (data_in_batch,data_truth_batch) in enumerate(eval_dataloader):
+      
+      # use cuda if exists
+      self.device = "cpu"
+      if self.devcnt > 0: self.device = "cuda"
+      if isinstance(data_in_batch,list):
+        data_in_batch = [x.to(self.device) for x in data_in_batch]
+      else:
+        data_in_batch = data_in_batch.to(self.device)
+      if isinstance(data_truth_batch,list):
+        data_truth_batch = [x.to(self.device) for x in data_truth_batch]
+      else:
+        data_truth_batch = data_truth_batch.to(self.device)          
+      
       # a single batch
       loss, pred_out, correct_one_batch = self.fwdpass_input_to_loss(data_in_batch,data_truth_batch)
       
@@ -246,6 +301,15 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       eval_loss += loss.item() 
       if self.outs_class:
         correct += correct_one_batch
+        # false positive (alarm) rate = number of false ones divided by total number of zeros
+        # get zeroidx indices of ground truth batch with zeros
+        # compare using indices, 
+        if self.loss_type == "bce":
+            pred_batch = pred_out[0]
+            mask = (data_truth_batch == 0)
+            zeroidxs = mask.nonzero()
+            fa = fa + sum(pred_batch[zeroidxs])
+            tzeros = tzeros + len(zeroidxs)    
       else:
         correct = None
     
@@ -262,10 +326,17 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
     else:
       # mean accuracy
       eval_accuracy = 1 - eval_loss
-    
-    # logs
-    print(f"{eval_name}: [ Avg Loss: {eval_loss:>0.4f}, Accuracy: {(eval_accuracy):>0.2f}% ]")
-    print(f"Elapsed Inf. time: {walltime:.2f}-mins.\n ")
+      
+    if self.loss_type == "bce":
+      fa = (fa/tzeros).item()
+      # logs
+      print(f"{eval_name}: [ Avg Loss: {eval_loss:>0.4f}, Accuracy: {(eval_accuracy):>0.2f}%,  FA = {fa*100:>0.6f}% ]")
+      print(f"Elapsed Inf. time: {walltime:.2f}-mins.\n ")
+    else:
+      fa = None     
+      # logs
+      print(f"{eval_name}: [ Avg Loss: {eval_loss:>0.4f}, Accuracy: {(eval_accuracy):>0.2f}% ]")
+      print(f"Elapsed Inf. time: {walltime:.2f}-mins.\n ")
     
     
     return eval_loss, eval_accuracy, predictions
@@ -285,6 +356,8 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
     steps_per_epoch = len(train_dataloader)
     num_batches = steps_per_epoch
     
+    # scaler = torch.cuda.amp.GradScaler(enabled=True)
+    scaler = None
     # reset or init parameters before a single training run
     self.reset_parameters()
     
@@ -297,19 +370,46 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
     train_losses, test_losses, train_accs, test_accs = [],[],[],[]
     for t in range(epochs):
       self.train() # configure model in train mode.
-      train_loss, correct = 0., 0.
+      train_loss, correct = 0., 0.      
+      fa, tzeros = 0., 0.
       
       walltime = time.time()
+      torch.cuda.synchronize()
       # a single epoch
       for k, (data_in_batch,data_truth_batch) in enumerate(train_dataloader):
         # k = a single step out of steps[_per_epoch] equivalent to
         # k = a single batch out of num_batches
-        loss, pred_out, correct_one_batch = self.learn_onestep(data_in_batch,data_truth_batch)
+        
+        # use cuda if exists
+        self.device = "cpu"
+        if self.devcnt > 0: self.device = "cuda"
+        if isinstance(data_in_batch,list):
+          data_in_batch = [x.to(self.device) for x in data_in_batch]
+        else:
+          data_in_batch = data_in_batch.to(self.device)
+        if isinstance(data_truth_batch,list):
+          data_truth_batch = [x.to(self.device) for x in data_truth_batch]
+        else:
+          data_truth_batch = data_truth_batch.to(self.device)        
+        
+        loss, pred_out, correct_one_batch, scaler = self.learn_onestep(data_in_batch,data_truth_batch, scaler)
         
         # metrics
         train_loss += loss.item() 
         if self.outs_class:
           correct += correct_one_batch
+          
+          # TODO: binary classification only.
+          # false positive (alarm) rate = number of false ones divided by total number of zeros
+          # get zeroidx indices of ground truth batch with zeros
+          # compare using indices, 
+          if self.loss_type == "bce":
+            pred_batch = pred_out[0]
+            mask = (data_truth_batch == 0)
+            zeroidxs = mask.nonzero()
+            fa = fa + torch.sum(pred_batch[zeroidxs,:])
+            tzeros = tzeros + len(zeroidxs)          
+            
         else:
           correct = None
           
@@ -324,11 +424,20 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
         # mean accuracy
         train_accuracy = 1 - train_loss
       
-      # logs.
-      # train logs.
-      print(f"{t+1}: Elapsed Train time: {walltime:.2f}-mins.") 
-      print(f"Batches/Steps/Iterations per Epoch: {num_batches:>5d}")
-      print(f"Train:\t[ Avg Loss: {train_loss:>0.4f}, Accuracy: {(train_accuracy):>0.2f}% ]", end=' || ')
+      if self.loss_type == "bce":
+        fa = (fa/tzeros).item()
+        # logs.
+        # train logs.
+        print(f"{t+1}: Elapsed Train time: {walltime:.2f}-mins.") 
+        print(f"Batches/Steps/Iterations per Epoch: {num_batches:>5d}")
+        print(f"Train:\t[ Avg Loss: {train_loss:>0.4f}, Accuracy: {(train_accuracy):>0.2f}%, FA = {fa*100:>0.6f}% ] ", end=' || ')
+      else:
+        fa = None
+        # logs.
+        # train logs.
+        print(f"{t+1}: Elapsed Train time: {walltime:.2f}-mins.") 
+        print(f"Batches/Steps/Iterations per Epoch: {num_batches:>5d}")
+        print(f"Train:\t[ Avg Loss: {train_loss:>0.4f}, Accuracy: {(train_accuracy):>0.2f}% ]", end=' || ')
       
       # test       
       test_loss, test_accuracy, test_preds = self.eval_loop(test_dataloader,cfgs=None, eval_name=eval_name)
@@ -357,6 +466,7 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
           'model': self,
           'model_state_dict': self.state_dict(),
           'optimizer_state_dict': self.sgm.state_dict(),
+          # "scaler": scaler.state_dict(),
           'train_loss': train_loss,
           'eval_loss': test_loss,
           'train_acc': train_accuracy,
@@ -373,7 +483,8 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
     
     # clear optimizer state, after a single training run 
     self.sgm.state.clear()
-    
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
     
     return train_losses, train_accs, test_losses, test_accs
     
@@ -433,10 +544,6 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       dev_accs_list_per_run.append(dev_accuracy_list_per_epoch)
       
       bid = self.chkpt['epoch']-1
-      # - plot and individual test-train loss Metrics of each run
-      PATHplots = f"{storedir}/stores/plots"
-      os.makedirs(PATHplots, exist_ok=True)
-      PATHplots = f"{PATHplots}/plots_{PathStr}"
       
       # dashplots.traintest(train_loss_list_per_epoch, train_accuracy_list_per_epoch, dev_loss_list_per_epoch, dev_accuracy_list_per_epoch, epochs, self.chkpt['num_batches'],figname=PATHplots, live=False)
       

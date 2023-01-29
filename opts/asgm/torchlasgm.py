@@ -4,12 +4,9 @@ r"""PID:AutoSGM"""
 import math
 import numpy as np
 
-try:
-    from opts.elpf.torchfo import LPF
-    from opts.elpf.torchesfo import esLPF
-except:
-    from elpf.torchfo import LPF
-    from elpf.torchesfo import esLPF
+
+from opts.elpf.torchfo import LPF
+from opts.elpf.torchesfo import esLPF
 
 import torch
 from torch.optim.optimizer import Optimizer
@@ -23,7 +20,7 @@ class AGM():
     Core algorithm implementation (Torch)
     '''
     def __init__(self, mlpf:LPF,vlpf:LPF,wlpf:LPF,esslpf:esLPF, 
-                use_optim_choice:bool, smooth_out:bool, maximize:bool, weight_decay:Tensor,eps:Tensor,betas:tuple,ss_init:Tensor,ss_end:Tensor) -> None:
+                use_optim_choice:bool, smooth_out:bool, maximize:bool, weight_decay:Tensor,eps:Tensor,betas:tuple,ss_init:Tensor,ss_end:Tensor, ss_cte:Tensor, auto_init_ess:bool) -> None:
         self.gradref = 0
         self.mlpf = mlpf
         self.vlpf = vlpf
@@ -39,69 +36,93 @@ class AGM():
         self.beta_i = betas[0]
         self.beta_ss = betas[3]
         self.ss_init = ss_init
+        self.ss_base = ss_init
         self.ss_end = ss_end 
+        self.ss_cte = ss_cte
+        self.auto_init_ess = auto_init_ess
         pass
     
     @torch.no_grad()
-    def compute(self,step:Tensor|int, step_c:Tensor|int, param:Tensor,       param_grad:Tensor,mk:Tensor,vk:Tensor,qk:Tensor,wk:Tensor,ss_k:Tensor, optparam:Tensor=None):
+    def compute_optparam(self,step:Tensor|int, param:Tensor, param_grad:Tensor,mk:Tensor,qk:Tensor,wk:Tensor,optparam:Tensor=None):
         
         # -1. input grad.
         # grad = gradi + (weight_decay*param)
         grad = (param_grad.add(self.weight_decay*wk))
             
         error = grad.neg_() # (self.grad_ref - grad) = -grad
-        if self.maximize:
-            error.neg_()
-            
-        if self.use_optim_choice:
-            bmo = 0
-        else:
-            bmo = 10
+        if self.maximize: error.neg_()
             
         # E[g]: input mean estimation
         errmean, mk = self.mlpf.compute(u=error, x=mk, 
-                        beta=self.beta_i, bmode=bmo, step=step)
+                        beta=self.beta_i, bmode=0, step=step)
             
         # - placeholder: change in parameter (weight)
         delta_param = errmean.add_(0)
                 
         # -2. linear step-size fcn.
-        if optparam is not None:
-            if self.smooth_out:
-                alphap = torch.abs(qk-optparam).div(torch.abs(errmean)+self.eps)
-            else:
-                alphap = torch.abs(wk-optparam).div(torch.abs(errmean)+self.eps)
+        # -3. update
+        if self.smooth_out:
+            alphap = torch.abs(qk-optparam).div(torch.abs(errmean)+self.eps)
             delta_param.mul_(alphap)
-        else:
-            if self.use_optim_choice:        
-                # derivative part: variance estimation / normalization
-                # inner product: <g,g> = E[g^2] 
-                # gradnorm = grad.norm("fro")
-                
-                errsq =  error.mul(error.conj())
-                errvar, vk = self.vlpf.compute(u=errsq, x=vk, beta=self.beta_n, bmode=10, step=step)
-                gradnorm_den = (errvar.sqrt().add_(self.eps))
-                
+            # update
+            wk.add_(delta_param)
+            # E[w] output parameter smoothing
+            paramf, qk = self.wlpf.compute(u=wk, x=qk,
+                    beta=self.beta_o, bmode=0,  step=step)
+            # pass values to network's parameter placeholder.
+            param.copy_(paramf)
 
-                ss_k = self.esslpf.compute(
-                    u=self.ss_end,x_init=self.ss_init,noise_k=0,beta=self.beta_ss,step=step_c
-                    )
+        else:
+            alphap = torch.abs(wk-optparam).div(torch.abs(errmean)+self.eps)
+            delta_param.mul_(alphap)
+            # assume param is smooth
+            # update
+            wk.add_(delta_param)
+            # pass values to network's parameter placeholder.
+            param.copy_(wk)
+            
+        # END
+        
+        return alphap        
+        
+    @torch.no_grad()
+    def compute_opt(self,step:Tensor|int, step_c:Tensor|int, param:Tensor,      param_grad:Tensor,mk:Tensor,vk:Tensor,qk:Tensor,wk:Tensor,ss_k:Tensor):
+        
+        # -1. input grad.
+        # grad = gradi + (weight_decay*param)
+        grad = (param_grad.add(self.weight_decay*wk))
+            
+        error = grad.neg_() # (self.grad_ref - grad) = -grad
+        if self.maximize: error.neg_()
+            
+        # E[g]: input mean estimation
+        errmean, mk = self.mlpf.compute(u=error, x=mk, 
+                        beta=self.beta_i, step=step)
+            
+        # - placeholder: change in parameter (weight)
+        delta_param = errmean
                 
-                delta_param.div_(gradnorm_den) #.mul(ss_k)
-                delta_param.mul_(ss_k)
-                
-                alphap = (ss_k).div(gradnorm_den) 
-                # delta_param.mul_(alphap) 
-                
-                # ss_k = self.ss_init
-                # delta_param.div_( 
-                    # (errvar.sqrt() / (ss_k)).add_(self.eps / (ss_k)) 
-                    # )
-            else: 
-                # no variance estimation added to alpha_p.
-                alphap = ss_k 
-                delta_param.mul_(alphap)      
-                # kpk = alphap; delta_param = errmean.mul_(kpk)
+        # -2. linear step-size fcn.
+        # derivative part: variance estimation / normalization
+        # inner product: <g,g> = E[g^2] 
+        # gradnorm = grad.norm("fro")
+        
+        errsq =  error.mul(error.conj())
+        errvar, vk = self.vlpf.compute(u=errsq, x=vk, beta=self.beta_n, bmode=10, step=step)
+        errstd = (errvar.sqrt().add_(self.eps))
+        
+        ss_k = self.esslpf.compute(
+            u=self.ss_end,x_init=self.ss_init,noise_k=0,beta=self.beta_ss,step=step_c
+            )
+        delta_param.div_(errstd).mul_(ss_k) # delta_param.mul_(ss_k)
+        
+        alphap = (ss_k).div(errstd) 
+        # delta_param.mul_(alphap) 
+        
+        # ss_k = self.ss_init
+        # delta_param.div_( 
+            # (errvar.sqrt() / (ss_k)).add_(self.eps / (ss_k)) 
+            # )
             
         # -3. update
         if self.smooth_out:
@@ -112,7 +133,6 @@ class AGM():
                     beta=self.beta_o, bmode=0,  step=step)
             # pass values to network's parameter placeholder.
             param.copy_(paramf)
-
         else:
             # assume param is smooth
             # update
@@ -124,7 +144,51 @@ class AGM():
         
         return alphap        
         
+    @torch.no_grad()
+    def compute_notopt(self,step:Tensor|int, param:Tensor,   param_grad:Tensor,mk:Tensor,qk:Tensor,wk:Tensor,ss_k:Tensor):
         
+        # -1. input grad.
+        # grad = gradi + (weight_decay*param)
+        grad = (param_grad.add(self.weight_decay*wk))
+            
+        error = grad.neg_() # (self.grad_ref - grad) = -grad
+        if self.maximize:  error.neg_()
+            
+        # E[g]: input mean estimation
+        errmean, mk = self.mlpf.compute(u=error, x=mk, 
+                        beta=self.beta_i, bmode=10, step=step)
+            
+        # - placeholder: change in parameter (weight)
+        delta_param = errmean.add_(0)
+                
+        # -2. linear step-size fcn.
+        # no variance estimation added to alpha_p.
+        alphap = ss_k 
+        delta_param.mul_(alphap)      
+        # kpk = alphap; delta_param = errmean.mul_(kpk)
+            
+        # -3. update
+        if self.smooth_out:
+            # update
+            wk.add_(delta_param)
+            # E[w] output parameter smoothing
+            paramf, qk = self.wlpf.compute(u=wk, x=qk,
+                    beta=self.beta_o, bmode=0,  step=step)
+            # pass values to network's parameter placeholder.
+            param.copy_(paramf)
+        else:
+            # assume param is smooth
+            # update
+            wk.add_(delta_param)
+            # pass values to network's parameter placeholder.
+            param.copy_(wk)
+            
+        # END
+        
+        return alphap        
+        
+                  
+     
 class PID(Optimizer):
 
     """Implements: "Stochastic" Gradient Method (Torch), an automatic learning algorithm.
@@ -145,9 +209,9 @@ class PID(Optimizer):
         
     Date: (Changes)
 
-        2022. Nov. (added parameter (weight) adaptation)
+        2022. Nov. (added (weight) parameter adaptation)
         
-        2023. Jan. (added effective step-size variation)
+        2023. Jan. (added effective step-size auto init. and variation)
 
     Args:
         params(iterable, required): iterable of parameters to optimize or dicts defining parameter groups
@@ -156,9 +220,11 @@ class PID(Optimizer):
 
         ss_init (float, required): starting eff. proportional gain or step-size (default=1e-3): (0, 1), 
                 
-        ss_end(float, optional):  ending eff. proportional gain or step-size (default=0): (0, 1), 
+        ss_end (float, optional):  ending eff. proportional gain or step-size (default=0): (0, 1), 
         
-        eps_ss(float, optional): accuracy of final step_size in an epoch with respect to ss_end (default = 0.5): (0, 1), 
+        eps_ss (float, optional): accuracy of final step_size in an epoch with respect to ss_end (default = 0.5): (0, 1), 
+        
+        nfl_cte (float, optional): no-free-lunch constant, how much do you trust the initial eff. step-size. (default = 0.25): (0, 1),
 
         beta_i (float, optional): input mean est. lowpass filter pole (default = 0.9): (0, 1), 
         
@@ -175,6 +241,8 @@ class PID(Optimizer):
         maximize (bool, optional): maximize the params based on the objective, 
         instead of minimizing (default: False)
         
+        auto_init_ess (bool, optional, default: True)
+        
         optparams (optional): optimum param, if known, else default=None
 
 
@@ -184,9 +252,9 @@ class PID(Optimizer):
         >>> import opts.asgm.torchlasgm as asgm
         >>> ...
         
-        >>> optimizer = asgm.PID(model.parameters(), ss_init=1e-3,steps_per_epoch=100)
+        >>> optimizer = asgm.PID(model.parameters(), steps_per_epoch=100, weight_decay=1e-5)
         
-        >>> optimizer = asgm.PID(model.parameters(), ss_init=1e-3, ss_end=1e-5, betai=1e-1, steps_per_epoch=100, weight_decay=0)
+        >>> optimizer = asgm.PID(model.parameters(), ss_end=1e-5, beta_i=1e-1, steps_per_epoch=100, weight_decay=0)
         
         >>> ...
         >>> optimizer.zero_grad()
@@ -194,7 +262,7 @@ class PID(Optimizer):
         >>> optimizer.step
     """
     # 
-    def __init__(self, params, *, steps_per_epoch=1, ss_init=1e-3, ss_end=0, eps_ss = 5e-1, beta_i=0.9, beta_n=0.999, beta_o=1e-5, weight_decay=1e-5, use_optim_choice=True, smooth_out=True, maximize=False, optparams=None):
+    def __init__(self, params, *, steps_per_epoch=1, ss_init=1e-3, ss_end=0, eps_ss = 5e-1, nfl_cte = 2.5e-1, beta_i=0.9, beta_n=0.999, beta_o=1e-5, weight_decay=1e-5, use_optim_choice=True, smooth_out=True, maximize=False, auto_init_ess=True,optparams=None):
 
         if not 0.0 < ss_init:
             raise ValueError(f"Invalid value: rho={ss_init} must be in (0,1) for tuning")
@@ -220,6 +288,9 @@ class PID(Optimizer):
         # step-size.
         self.ss_init = torch.tensor(ss_init, dtype=torch.float, device=self.device)
         self.ss_end = torch.tensor(ss_end, dtype=torch.float, device=self.device)
+        self.ss_cte = torch.tensor(nfl_cte, dtype=torch.float, device=self.device)
+        self.auto_init_ess = auto_init_ess
+        
         # error in the convergence accuracy to ss_end.
         eps_ss = torch.tensor(eps_ss, dtype=torch.float, device=self.device)
         # steps
@@ -289,10 +360,12 @@ class PID(Optimizer):
             optparams_with_grad = None
 
         for group in self.param_groups:
+            if 'asgm' not in group:
+                group['asgm'] = AGM(self.mlpf,self.vlpf,self.wlpf,self.esslpf,
+                self.use_optim_choice,group['smooth_out'],group['maximize'], 
+                group['weight_decay'], self.eps, group['betas'], group['ss_init'], group['ss_end'], self.ss_cte, self.auto_init_ess) 
             
-            asgm = AGM(self.mlpf,self.vlpf,self.wlpf,self.esslpf,
-            self.use_optim_choice,group['smooth_out'],group['maximize'], 
-            group['weight_decay'], self.eps, group['betas'], group['ss_init'], group['ss_end']) 
+            asgm = group['asgm']
             
             # list of parameters, gradients, gradient notms
             params_with_grad = []
@@ -364,15 +437,16 @@ class PID(Optimizer):
 # Functional Interface
 @torch.no_grad()
 def control_event(asgm: AGM, loss:Tensor, 
-            params: List[Tensor], grads: List[Tensor], 
-            mk: List[Tensor], vk: List[Tensor], qk: List[Tensor], wk: List[Tensor], ss_k: List[Tensor], steps_per_epoch:int, state_steps: List[Tensor], optparams: List[Tensor] | None)->Tensor:
+        params: List[Tensor], grads: List[Tensor], 
+        mk: List[Tensor], vk: List[Tensor], qk: List[Tensor], wk: List[Tensor], ss_k: List[Tensor], steps_per_epoch:int, state_steps: List[Tensor], optparams: List[Tensor] | None)->Tensor:
+    
     r"""Functional API that computes the AutoSGM control/learning algorithm for each parameter in the model.
 
     See : [in future] class:`~torch.optim.AutoSGM` for details.
     """
 
     step = state_steps[0]
-
+    
     # cyclic step in each epoch
     step_c = (((step-1) % steps_per_epoch) + 1)
     
@@ -380,30 +454,41 @@ def control_event(asgm: AGM, loss:Tensor,
     # (AutoSGM) PID structure.
     # Et[param] = Et[param + alphap*Et[grad] ] = Et[param] + alphap*Et[grad]  
     alphaps = []
-    # for each parameter in the model.
     
     # uniform initial effective step-size (rough linear correlation estimation).
-    if step == 1:
-        # calc.
-        sum_params, param_numels = [],[]
-        for i, param in enumerate(params):
-            sum_params.append(param.square().sum())
+    if step == 1 and asgm.auto_init_ess:
+        square_params, mean_params, square_grads, prod_pg, param_numels = [],[],[],[],[]
+        for i, param in enumerate(params):  
+            gradi = (grads[i].add(asgm.weight_decay*wk[i]))
+            errgrad = gradi.neg()
+            mean_params.append(wk[i].sum())
+            square_params.append((wk[i].square()).sum())
+            square_grads.append(((errgrad).square()).sum())            
             param_numels.append(param.nelement())
-        pvec_norm_2 = torch.tensor(sum_params).sum().sqrt()
-        dparam = torch.tensor(param_numels).sum()
-        ss_init_calc=(pvec_norm_2/dparam)
-        # cond. use
-        if (ss_init_calc < 1) and (ss_init_calc < asgm.ss_init): asgm.ss_init.add_(ss_init_calc)
-        if (ss_init_calc < 1) and (ss_init_calc > asgm.ss_init): asgm.ss_init.copy_(ss_init_calc)
-        # debug
-        if step == 1: print(f"ss0: {asgm.ss_init:.6f}")
+            prod_pg.append((param*(errgrad)).sum())
+            
+        numel_param = torch.tensor(param_numels).to(asgm.eps.device).sum()
+        gvec_sq_sqrt = (((torch.tensor(square_grads).to(asgm.eps.device).sum()).div(numel_param)).sqrt())
+        pvec_sq = ((torch.tensor(square_params).to(asgm.eps.device).sum()).div(numel_param))
+        pmean_sq = (((torch.tensor(mean_params).to(asgm.eps.device).sum()).div(numel_param)).square())
+        prod_pgvec = ((torch.tensor(prod_pg).to(asgm.eps.device).sum()).div(numel_param))
+        std_pgvec = ((pvec_sq-pmean_sq).sqrt())*(gvec_sq_sqrt)
+        rho_est = prod_pgvec/(std_pgvec.add(asgm.eps))
+        
+        asgm.ss_init.copy_(asgm.ss_cte*rho_est.abs())        
+        print(f"[ss_init: {asgm.ss_init:>.6f} <= {rho_est:>.6f} ]") # debug
     
     for i, param in enumerate(params):
         if optparams is not None:
             optparam = optparams[i]
+            alphap = asgm.compute_optparam(step,param,grads[i],mk[i],qk[i],wk[i],optparam)
         else:
             optparam = None
-        alphap = asgm.compute(step,step_c,param,grads[i],mk[i],vk[i],qk[i],wk[i],ss_k[i],optparam)
+            if asgm.use_optim_choice: 
+                alphap = asgm.compute_opt(step,step_c,param,grads[i],mk[i],vk[i],qk[i],wk[i],ss_k[i])
+            else:
+                alphap = asgm.compute_notopt(step,step_c,param,grads[i],mk[i],qk[i],wk[i],ss_k[i])
+                
         alphaps.append(alphap)
         
     return alphaps

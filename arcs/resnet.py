@@ -75,7 +75,7 @@ class ResBlk(nn.Module):
         
       )  
     else:
-      self.idblk = nn.Sequential(nn.Identity())
+      self.lnkblk = nn.Sequential(nn.Identity())
       
     self.relu_out = nn.ReLU()
     # self.smooth_out = RFLowpassHLayer(beta=0.1, device=cfgs['device'], group=False) 

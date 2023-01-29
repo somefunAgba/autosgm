@@ -3,12 +3,9 @@ r"""PID:AutoSGM"""
 import math
 import numpy as np
 
-try:
-    from opts.elpf.fo import LPF
-    from opts.elpf.esfo import esLPF
-except:
-    from elpf.fo import LPF
-    from opts.elpf.esfo import esLPF
+
+from opts.elpf.fo import LPF
+from opts.elpf.esfo import esLPF
 
 from copy import copy as cpy
 
@@ -19,8 +16,8 @@ class AGM():
 
     Core algorithm implementation (Numpy)
     '''
-    def __init__(self, mlpf:LPF,vlpf:LPF,wlpf:LPF,esslpf:esLPF, 
-                use_optim_choice:bool, smooth_out:bool, maximize:bool, weight_decay, eps, betas:tuple,ss_init,ss_end) -> None:
+    def __init__(self,  mlpf:LPF,vlpf:LPF,wlpf:LPF,esslpf:esLPF, 
+                use_optim_choice:bool, smooth_out:bool, maximize:bool, weight_decay,eps,betas:tuple,ss_init, ss_end,ss_cte, auto_init_ess:bool) -> None:
         self.gradref = 0
         self.mlpf = mlpf
         self.vlpf = vlpf
@@ -35,63 +32,93 @@ class AGM():
         self.beta_n = betas[1]
         self.beta_i = betas[0]
         self.beta_ss = betas[3]
-        self.ss_init = ss_init
+        self.ss_base = ss_init
         self.ss_end = ss_end 
+        self.ss_cte = ss_cte
+        self.auto_init_ess = auto_init_ess
         pass
     
-    def compute(self,step:int,step_c:int,param,param_grad,
-                mk,vk,qk,wk,ss_k,optparam=None):
+    def compute_optparam(self,step:int,param,param_grad,
+                         mk,qk,wk,optparam=None):
         
         # -1. input grad.
         # grad = gradi + (weight_decay*param)
         grad = (param_grad+(self.weight_decay*wk))
             
         error = -grad # (self.grad_ref - grad) = -grad
-        if self.maximize:
-            error = -error
+        if self.maximize: error = -error
             
-        if self.use_optim_choice:
-            bmo = 0
-        else:
-            bmo = 10
             
         # E[g]: input mean estimation
         errmean, mk = self.mlpf.compute(u=error, x=mk, 
-                        beta=self.beta_i, bmode=bmo, step=step)
+                        beta=self.beta_i, bmode=0, step=step)
             
         # - placeholder: change in parameter (weight)
         delta_param = errmean+0
                 
         # -2. linear step-size fcn.
-        if optparam is not None:
-            if self.smooth_out:
-                alphap = np.abs(qk-optparam)/(np.abs(errmean)+self.eps)
-            else:
-                alphap = np.abs(wk-optparam)/(np.abs(errmean)+self.eps)
-            delta_param = delta_param*(alphap)
+        if self.smooth_out:
+            alphap = np.abs(qk-optparam)/(np.abs(errmean)+self.eps)
         else:
-            if self.use_optim_choice:        
-                # derivative mode: variance estimation / normalization
-                # inner product: <g,g> = E[g^2] 
-                # gradnorm = grad.norm("fro")
-                
-                errsq =  error*error
-                errvar, vk = self.vlpf.compute(u=errsq, x=vk, beta=self.beta_n, bmode=10, step=step)
-                gradnorm_den = (np.sqrt(errvar)+(self.eps))
-                
-                ss_k = self.esslpf.compute(
-                    u=self.ss_end,x_init=self.ss_init,noise_k=0,beta=self.beta_ss,step=step_c
-                    )
+            alphap = np.abs(wk-optparam)/(np.abs(errmean)+self.eps)
+        delta_param = delta_param*(alphap)
+ 
+        # -3. update
+        if self.smooth_out:
+            # update
+            wk += (delta_param)
+            # E[w] output parameter smoothing
+            paramf, qk = self.wlpf.compute(u=wk, x=qk,
+                    beta=self.beta_o, bmode=0,  step=step)
+            # pass values to network's placeholder.
+            param = paramf
+
+        else:
+            # assume param is smooth
+            # update
+            wk += (delta_param)
+            # pass values to network's parameter placeholder.
+            param = wk
             
-                delta_param = (delta_param/gradnorm_den)*ss_k
-                alphap = (ss_k)/gradnorm_den
-                #
-                # delta_param = delta_param/((np.sqrt(errvar)/(ss_k)) + (self.eps/(ss_k)))
-            else: 
-                # no variance estimation added to alpha_p.
-                alphap = ss_k 
-                delta_param = delta_param*(alphap)      
-                # kpk = alphap; delta_param = errmean.mul_(kpk)
+        # END
+        
+        return param, alphap        
+        
+    def compute_opt(self,step:int,step_c:int,param,param_grad,
+                mk,vk,qk,wk,ss_k):
+        
+        # -1. input grad.
+        # grad = gradi + (weight_decay*param)
+        grad = (param_grad+(self.weight_decay*wk))
+            
+        error = -grad # (self.grad_ref - grad) = -grad
+        if self.maximize: error = -error
+            
+        # E[g]: input mean estimation
+        errmean, mk = self.mlpf.compute(u=error, x=mk, 
+                        beta=self.beta_i, bmode=0, step=step)
+            
+        # - placeholder: change in parameter (weight)
+        delta_param = errmean+0
+                
+        # -2. linear step-size fcn.
+        # derivative mode: variance estimation / normalization
+        # inner product: <g,g> = E[g^2] 
+        # gradnorm = grad.norm("fro")
+        
+        errsq =  error*error
+        errvar, vk = self.vlpf.compute(u=errsq, x=vk, beta=self.beta_n, bmode=10, step=step)
+        gradnorm_den = (np.sqrt(errvar)+(self.eps))
+        
+        ss_k = self.esslpf.compute(
+            u=self.ss_end,x_init=self.ss_init,noise_k=0,beta=self.beta_ss,step=step_c
+            )
+    
+        delta_param = (delta_param/gradnorm_den)*ss_k
+        alphap = (ss_k)/gradnorm_den
+        #
+        # delta_param = delta_param/((np.sqrt(errvar)/(ss_k)) + (self.eps/(ss_k)))
+
             
         # -3. update
         if self.smooth_out:
@@ -114,7 +141,51 @@ class AGM():
         
         return param, alphap        
         
+    def compute_notopt(self,step:int,param,param_grad,
+                mk,qk,wk,ss_k):
+        
+        # -1. input grad.
+        # grad = gradi + (weight_decay*param)
+        grad = (param_grad+(self.weight_decay*wk))
+            
+        error = -grad # (self.grad_ref - grad) = -grad
+        if self.maximize: error = -error
+            
+        # E[g]: input mean estimation
+        errmean, mk = self.mlpf.compute(u=error, x=mk, 
+                        beta=self.beta_i, bmode=10, step=step)
+            
+        # - placeholder: change in parameter (weight)
+        delta_param = errmean+0
+                
+        # -2. linear step-size fcn.
+        # no variance estimation added to alpha_p.
+        alphap = ss_k 
+        delta_param = delta_param*(alphap)      
+        # kpk = alphap; delta_param = errmean.mul_(kpk)
     
+        # -3. update
+        if self.smooth_out:
+            # update
+            wk += (delta_param)
+            # E[w] output parameter smoothing
+            paramf, qk = self.wlpf.compute(u=wk, x=qk,
+                    beta=self.beta_o, bmode=0,  step=step)
+            # pass values to network's placeholder.
+            param = paramf
+
+        else:
+            # assume param is smooth
+            # update
+            wk += (delta_param)
+            # pass values to network's parameter placeholder.
+            param = wk
+            
+        # END
+        
+        return param, alphap        
+        
+            
 
 class PID():
 
@@ -141,15 +212,17 @@ class PID():
         2023. Jan. (Heavy Refactoring + added effective step-size variation)
 
     Args:
-        params(iterable, required): iterable of parameters to optimize or dicts defining parameter groups
+        params_init(iterable, required): iterable of initialized parameters to optimize
 
         steps_per_epoch (int, required): per batch iterations >= 1 (default: 1)
 
         ss_init (float, required): starting eff. proportional gain or step-size (default=1e-3): (0, 1), 
                 
-        ss_end(float, optional):  ending eff. proportional gain or step-size (default=0): (0, 1), 
+        ss_end (float, optional):  ending eff. proportional gain or step-size (default=0): (0, 1), 
         
-        eps_ss(float, optional): accuracy of final step_size in an epoch with respect to ss_end (default = 0.5): (0, 1), 
+        eps_ss (float, optional): accuracy of final step_size in an epoch with respect to ss_end (default = 0.5): (0, 1), 
+        
+        nfl_cte (float, optional): no-free-lunch constant, how much do you trust the initial eff. step-size. (default = 0.25): (0, 1),
 
         beta_i (float, optional): input mean est. lowpass filter pole (default = 0.9): (0, 1), 
         
@@ -166,6 +239,8 @@ class PID():
         maximize (bool, optional): maximize the params based on the objective, 
         instead of minimizing (default: False)
         
+        auto_init_ess (bool, optional, default: True)
+        
         optparams (optional): optimum param, if known, else default=None
 
         .. AutoSGM: Automatic (Stochastic) Gradient Method _somefuno@oregonstate.edu
@@ -173,13 +248,13 @@ class PID():
     Example:
         >>> import opts.asgm.nplasgm as asgm
         >>> ...
-        >>> optimizer = asgm.PID(param_init, steps_per_epoch=1, ss_init=1e-3, beta_i=0.9, weight_decay=1e-5):
+        >>> optimizer = asgm.PID(param_init, steps_per_epoch=1, beta_i=0.9, weight_decay=1e-5):
         >>> ...
-        >>> optimizer.step
+        >>> optimizer.step(params, grads)
     """
 
     # 
-    def __init__(self, param_init, steps_per_epoch=1, ss_init=1e-3, ss_end=0, eps_ss = 5e-1, beta_i=0.9, beta_n=0.999, beta_o=1e-5, weight_decay=1e-5, use_optim_choice=True, smooth_out=True, maximize=False, optparams=None):
+    def __init__(self, param_init,  steps_per_epoch=1, ss_init=1e-3, ss_end=0, eps_ss = 5e-1, nfl_cte = 2.5e-1, beta_i=0.9, beta_n=0.999, beta_o=1e-5, weight_decay=1e-5, use_optim_choice=True, smooth_out=True, maximize=False, auto_init_ess=True,optparams=None):
 
         if not 0.0 < ss_init:
             raise ValueError(f"Invalid value: rho={ss_init} must be in (0,1) for tuning")
@@ -209,6 +284,8 @@ class PID():
         # step-size.
         self.ss_init = ss_init
         self.ss_end = ss_end
+        self.ss_cte = nfl_cte
+        self.auto_init_ess = auto_init_ess
         # eps_ss: convergence accuracy to ss_end.
         self.beta_ss = np.exp((np.log(eps_ss)/steps_per_epoch))
         
@@ -241,7 +318,8 @@ class PID():
         # grads = []
         asgm = AGM(self.mlpf,self.vlpf,self.wlpf,self.esslpf,
             self.use_optim_choice,self.smooth_out,self.maximize, 
-            self.weight_decay, self.eps, self.betas, self.ss_init, self.ss_end) 
+            self.weight_decay, self.eps, self.betas, 
+            self.ss_init, self.ss_end, self.ss_cte, self.auto_init_ess) 
 
         # list to hold step count
         state_steps = []
@@ -321,30 +399,43 @@ def control_event(asgm: AGM, loss,
     alphaps = []
     
     # uniform initial effective step-size (rough linear correlation estimation).
-    if step == 1:
-        # calc.
-        sum_params, param_numels = [],[]
-        for i, param in enumerate(params):
-            sum_params.append(np.sum(np.square(param)))
-            param_numels.append(np.size(param))
-        pvec_norm_2 = np.sqrt(np.sum(np.array(sum_params)))
-        dparam = np.sum(np.array(param_numels))
-        ss_init_calc = (pvec_norm_2/dparam)
-        # cond. use
-        if (ss_init_calc < 1) and (ss_init_calc < asgm.ss_init): asgm.ss_init += (ss_init_calc)
-        if (ss_init_calc < 1) and (ss_init_calc > asgm.ss_init): asgm.ss_init = (ss_init_calc)
-        # debug
-        if step == 1: print(f"ss0: {asgm.ss_init:.6f}")
-    
+    if step == 1 and asgm.auto_init_ess:
+        square_params, mean_params, square_grads, prod_pg, param_numels = [],[],[],[],[]
+        for i, param in enumerate(params):        
+            gradi = (grads[i].add(asgm.weight_decay*wk[i]))
+            errgrad = -gradi
+            mean_params.append(np.sum(wk[i]))
+            square_params.append(np.square(np.sum(wk[i])))
+            square_grads.append(np.square(np.sum(errgrad)))            
+            param_numels.append(np.len(param))
+            prod_pg.append((param*(errgrad)).sum())
+            
+        numel_param = np.sum(np.array(param_numels))
+        gvec_sq_sqrt = np.sqrt(np.sum(np.array(square_grads))/(numel_param))
+        pvec_sq = np.sum(np.array(square_params))/(numel_param)
+        pmean_sq = np.square(np.sum(np.array(mean_params))/(numel_param))
+        prod_pgvec = np.sum(np.array((prod_pg))/(numel_param))
+        std_pgvec = (np.sqrt(pvec_sq-pmean_sq))*(gvec_sq_sqrt)
+        rho_est = prod_pgvec/(std_pgvec+asgm.eps)
+        
+        asgm.ss_init.copy_(asgm.ss_cte*np.abs(rho_est))        
+        print(f"[ss_init: {asgm.ss_init:>.6f} <= {rho_est:>.6f} ]") # debug    
     
     # for each parameter in the model.
     for i, _ in enumerate(params):
         if optparams is not None:
             optparam = optparams[i]
+            params[i], alphap = asgm.compute_optparam(step, 
+                    params[i],grads[i],mk[i],qk[i],wk[i],optparam)
         else:
             optparam = None
-        params[i], alphap = asgm.compute(step,step_c, 
-                    params[i],grads[i],mk[i],vk[i],qk[i],wk[i],ss_k[i],optparam)
+            if asgm.use_optim_choice:
+                params[i], alphap = asgm.compute_opt(step,step_c, 
+                    params[i],grads[i],mk[i],vk[i],qk[i],wk[i],ss_k[i])
+            else:
+                params[i], alphap = asgm.compute(step,step_c, 
+                    params[i],grads[i],mk[i],qk[i],wk[i],ss_k[i])
+        
         alphaps.append(alphap)
         
     return alphaps

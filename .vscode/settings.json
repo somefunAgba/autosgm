@@ -1,0 +1,11 @@
+{
+  "terminal.integrated.env.windows": {
+    "PYTHONPATH": "./",
+  },
+  "terminal.integrated.env.linux": {
+    "PYTHONPATH":".:${PYTHONPATH}",
+  },
+  "python.analysis.extraPaths":[
+    "${workspaceFolder}"
+  ]
+}
