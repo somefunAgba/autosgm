@@ -207,9 +207,9 @@ class PID():
         
     Date: (Changes)
 
-        2022. Nov. (parameter (weight) adaptation)
+        2022. Nov. (added (weight) parameter adaptation)
         
-        2023. Jan. (Heavy Refactoring + added effective step-size variation)
+        2023. Jan. (added effective step-size auto init. and variation)
 
     Args:
         params_init(iterable, required): iterable of initialized parameters to optimize
