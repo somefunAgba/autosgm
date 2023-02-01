@@ -1,6 +1,6 @@
 
 # AutoSGM
-A PyTorch implementation of the automatic learning (or control) algorithm.
+Official PyTorch implementation of the (Stochastic) Gradient Method, the automatic iterative learning (or control) algorithm that linearly transforms first-order gradients of a well-defined objective function to estimates of parameters (data representations) in a well-defined differentiable function (artificial neural network).
 
 <img src="./lasgm_blkview.svg" width="500">
 
@@ -9,7 +9,7 @@ This library implements the *first-order gradient method*, for learning the para
 
 This method automatically arises as the empirical form of the best possible learning algorithm (*minimum bayes risk control function*) in the class of linear control functions. We call it **AutoSGM**.
 
-Standing on the shoulders of about 7 decades of literature, we provide a clearer understanding of the three practical accelerated learning variants of the (Stochastic) Gradient Method (SGM), namely: *Polyak's Heavy ball*, *Nesterov Accelerated Gradient*, *Adaptive Moment Estimation* by presenting AutoSGM as their unifying representation for accelerated learning.
+Standing on the shoulders of about 7 decades of literature, this work attempts to provide a clearer understanding of the three practical accelerated learning variants of the (Stochastic) Gradient Method (SGM), namely: *Polyak's Heavy ball*, *Nesterov Accelerated Gradient*, *Adaptive Moment Estimation* by presenting AutoSGM as their unifying representation for accelerated learning.
 
 
 ## Getting Started (installing or setting up)
