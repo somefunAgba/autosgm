@@ -19,81 +19,133 @@ class AGM():
 
     Core algorithm implementation (Torch)
     '''
-    def __init__(self, mlpf:LPF,vlpf:LPF,wlpf:LPF,esslpf:esLPF, 
-                use_optim_choice:bool, smooth_out:bool, maximize:bool, weight_decay:Tensor,eps:Tensor,betas:tuple,ss_init:Tensor,ss_end:Tensor, ss_cte:Tensor, auto_init_ess:bool) -> None:
+    def __init__(self, wlpf:LPF, 
+                mlpf:LPF,vlpf:LPF,esslpf:esLPF,
+                use_optim_choice:bool, maximize:bool, 
+                eps:Tensor,betas:tuple,
+                ss_inits:tuple, ss_end:Tensor, ss_cte:Tensor, auto_init_ess:bool) -> None:
         self.gradref = 0
+        self.wlpf = wlpf
         self.mlpf = mlpf
         self.vlpf = vlpf
-        self.wlpf = wlpf
         self.esslpf = esslpf
         self.use_optim_choice = use_optim_choice
-        self.smooth_out = smooth_out
         self.maximize = maximize
-        self.weight_decay = weight_decay
         self.eps = eps
-        self.beta_o = betas[2]
-        self.beta_n = betas[1]
+        self.beta_o = betas[1]
         self.beta_i = betas[0]
-        self.beta_ss = betas[3]
-        self.ss_init = ss_init
-        self.ss_base = ss_init
+        self.beta_ss = betas[2]
+        self.ss_init = ss_inits[0]
+        self.ss_base = ss_inits[0]
         self.ss_end = ss_end 
         self.ss_cte = ss_cte
         self.auto_init_ess = auto_init_ess
         pass
     
     @torch.no_grad()
-    def compute_optparam(self,step:Tensor|int, param:Tensor, param_grad:Tensor,mk:Tensor,qk:Tensor,wk:Tensor,optparam:Tensor=None):
-        
-        # -1. input grad.
-        # grad = gradi + (weight_decay*param)
-        grad = (param_grad.add(self.weight_decay*wk))
+    def init_lin_corr_est(self, params, grads, step):
+        if step == 1 and self.auto_init_ess:
+            square_params, param_numels = [],[]
+            square_grads, prod_pg = [],[]
             
-        error = grad.neg_() # (self.grad_ref - grad) = -grad
-        if self.maximize: error.neg_()
-            
-        # E[g]: input mean estimation
-        errmean, mk = self.mlpf.compute(u=error, x=mk, 
-                        beta=self.beta_i, bmode=0, step=step)
-            
-        # - placeholder: change in parameter (weight)
-        delta_param = errmean.add_(0)
+            for i, param in enumerate(params):  
+                gradi = ((grads[i]).mul(1))
+                errgrad = gradi.neg()
+                square_params.append((param.square()).sum())
+                #
+                square_grads.append(((errgrad.pow(1)).square()).sum())            
+                prod_pg.append((param*(errgrad.pow(1))).sum())
+                param_numels.append(param.nelement())
                 
-        # -2. linear step-size fcn.
-        # -3. update
-        if self.smooth_out:
-            alphap = torch.abs(qk-optparam).div(torch.abs(errmean)+self.eps)
-            delta_param.mul_(alphap)
-            # update
-            wk.add_(delta_param)
-            # E[w] output parameter smoothing
-            paramf, qk = self.wlpf.compute(u=wk, x=qk,
-                    beta=self.beta_o, bmode=0,  step=step)
-            # pass values to network's parameter placeholder.
-            param.copy_(paramf)
+            numel_param = torch.tensor(param_numels).to(self.eps.device).sum()
+            pvec_sq = (torch.tensor(square_params).to(self.eps.device).sum())
+            pvec_sq_sqrt = (pvec_sq).sqrt().add(self.eps)
+            
+            # 1
+            gvec_sq = (torch.tensor(square_grads).to(self.eps.device).sum())
+            gvec_sq_sqrt = gvec_sq.sqrt().add(self.eps)
+            prod_pgvec = (torch.tensor(prod_pg).to(self.eps.device).sum())
+            std_pgvec = ((pvec_sq_sqrt)*(gvec_sq_sqrt))
+            rho_est =  prod_pgvec/(std_pgvec)
+            
+            
+            if step == 1 and self.auto_init_ess:    
+                self.ss_init.copy_(self.ss_cte*rho_est.abs())  
+                
+                strlog = f"aSGM info:\n[eff. step-size [linear correlation value (starting := {self.ss_init:.4g}), (ending := {self.ss_end:.4g}), step-size pole : {self.beta_ss:.4g}],\n[LPF Poles [i,o] : {self.beta_i:.4g}, {self.beta_o:.4g}]"
+                txt = "*"
+                print(f"{txt * len(strlog)}")    
+                print(strlog)
+                
+                # debug   
+                print(f"total params, d={numel_param.item()}")
+                print(f"[ss_init: {self.ss_init:>.6f} <= {rho_est.abs():>.6f} ]")
+                
+                print(f"{txt * len(strlog)}\n")
+                    
 
-        else:
-            alphap = torch.abs(wk-optparam).div(torch.abs(errmean)+self.eps)
-            delta_param.mul_(alphap)
-            # assume param is smooth
-            # update
-            wk.add_(delta_param)
-            # pass values to network's parameter placeholder.
-            param.copy_(wk)
+    @torch.no_grad()
+    def compute_opt(self,step:Tensor|int, step_c:Tensor|int,        
+                param:Tensor, param_grad:Tensor,grad_regs:Tensor,qk:Tensor,wk:Tensor,mk:Tensor,vk:Tensor):
+        
+        # -1. input grad.          
+        # - placeholder: change in parameter (weight)            
+        # Et[g]: input smoothing, like mean estimation     
+        # -2. linear step-size fcn. 
+        # derivative part: variance estimation / normalization
+        # inner product: <g,g> = Et[g^2]  # gradnorm = grad.norm("fro")
+        # -3. update param.
+        
+        # (grad_ref - grad) = -grad
+        error = (param_grad.add(grad_regs)).neg_() 
+        if self.maximize: error.neg_()
+        errsq = error.square() #error.mul(error.conj())        
+        err_smth, mk = self.mlpf.compute(u=error, x=mk, 
+                    beta=self.beta_i, step=step)
+        
+        # IN 1: 
+        # - placeholder: change in parameter (weight)
+        delta_param = err_smth.pow(1)        
+        ss_k = self.esslpf.compute(
+            u=self.ss_end,x_init=self.ss_init,noise_k=0,
+            beta=self.beta_ss,step=step_c
+            )
+        ss_k = ss_k.div(1)
+        errvar, vk = self.vlpf.compute(u=errsq.pow(1), x=vk, 
+                    beta=1-ss_k, step=step)
+        errstd = (errvar.sqrt().add_(self.eps))
+        delta_param.div_(errstd).mul_(ss_k)
+        # update
+        wk.add_(delta_param)
+  
+        # UPDATE
+        # E[w] output parameter smoothing
+        param_smth, qk = self.wlpf.compute(u=wk, x=qk,
+                beta=self.beta_o, step=step)
+        # pass values to network's parameter placeholder.
+        param.copy_(param_smth)
             
         # END
-        
+        alphap = (ss_k).div(errstd) 
         return alphap        
         
+
     @torch.no_grad()
-    def compute_opt(self,step:Tensor|int, step_c:Tensor|int, param:Tensor,      param_grad:Tensor,mk:Tensor,vk:Tensor,qk:Tensor,wk:Tensor,ss_k:Tensor):
+    def compute_opt_dcp(self,step:Tensor|int, step_c:Tensor|int, param:Tensor,  param_grad:Tensor,grad_regs:Tensor,mk:Tensor,vk:Tensor,qk:Tensor,wk:Tensor,ss_k:Tensor):
         
         # -1. input grad.
-        # grad = gradi + (weight_decay*param)
-        grad = (param_grad.add(self.weight_decay*wk))
-            
-        error = grad.neg_() # (self.grad_ref - grad) = -grad
-        if self.maximize: error.neg_()
+        
+        # direct error 
+        error = param_grad.neg() # (0 - grad) = -grad
+        # weight regularization error
+        error_reg = grad_regs.neg()
+        # total error
+        error_comb = error.add(error_reg)
+        
+        if self.maximize: 
+            error.neg_()
+            error_comb.neg_()
+            error_reg.neg_()
             
         # E[g]: input mean estimation
         errmean, mk = self.mlpf.compute(u=error, x=mk, 
@@ -101,13 +153,14 @@ class AGM():
             
         # - placeholder: change in parameter (weight)
         delta_param = errmean
+        dcp_param = error_reg
                 
         # -2. linear step-size fcn.
         # derivative part: variance estimation / normalization
         # inner product: <g,g> = E[g^2] 
         # gradnorm = grad.norm("fro")
         
-        errsq =  error.mul(error.conj())
+        errsq =  error_comb.mul(error_comb.conj())
         errvar, vk = self.vlpf.compute(u=errsq, x=vk, beta=self.beta_n, bmode=10, step=step)
         errstd = (errvar.sqrt().add_(self.eps))
         
@@ -115,18 +168,16 @@ class AGM():
             u=self.ss_end,x_init=self.ss_init,noise_k=0,beta=self.beta_ss,step=step_c
             )
         delta_param.div_(errstd).mul_(ss_k) # delta_param.mul_(ss_k)
+        dcp_param.div_(errstd).mul_(ss_k)
         
         alphap = (ss_k).div(errstd) 
         # delta_param.mul_(alphap) 
         
-        # ss_k = self.ss_init
-        # delta_param.div_( 
-            # (errvar.sqrt() / (ss_k)).add_(self.eps / (ss_k)) 
-            # )
             
         # -3. update
         if self.smooth_out:
             # update
+            wk.add_(dcp_param)
             wk.add_(delta_param)
             # E[w] output parameter smoothing
             paramf, qk = self.wlpf.compute(u=wk, x=qk,
@@ -136,6 +187,7 @@ class AGM():
         else:
             # assume param is smooth
             # update
+            wk.add_(dcp_param)
             wk.add_(delta_param)
             # pass values to network's parameter placeholder.
             param.copy_(wk)
@@ -143,50 +195,8 @@ class AGM():
         # END
         
         return alphap        
-        
-    @torch.no_grad()
-    def compute_notopt(self,step:Tensor|int, param:Tensor,   param_grad:Tensor,mk:Tensor,qk:Tensor,wk:Tensor,ss_k:Tensor):
-        
-        # -1. input grad.
-        # grad = gradi + (weight_decay*param)
-        grad = (param_grad.add(self.weight_decay*wk))
-            
-        error = grad.neg_() # (self.grad_ref - grad) = -grad
-        if self.maximize:  error.neg_()
-            
-        # E[g]: input mean estimation
-        errmean, mk = self.mlpf.compute(u=error, x=mk, 
-                        beta=self.beta_i, bmode=10, step=step)
-            
-        # - placeholder: change in parameter (weight)
-        delta_param = errmean.add_(0)
-                
-        # -2. linear step-size fcn.
-        # no variance estimation added to alpha_p.
-        alphap = ss_k 
-        delta_param.mul_(alphap)      
-        # kpk = alphap; delta_param = errmean.mul_(kpk)
-            
-        # -3. update
-        if self.smooth_out:
-            # update
-            wk.add_(delta_param)
-            # E[w] output parameter smoothing
-            paramf, qk = self.wlpf.compute(u=wk, x=qk,
-                    beta=self.beta_o, bmode=0,  step=step)
-            # pass values to network's parameter placeholder.
-            param.copy_(paramf)
-        else:
-            # assume param is smooth
-            # update
-            wk.add_(delta_param)
-            # pass values to network's parameter placeholder.
-            param.copy_(wk)
-            
-        # END
-        
-        return alphap        
-        
+           
+
                   
      
 class PID(Optimizer):
@@ -228,20 +238,16 @@ class PID(Optimizer):
 
         beta_i (float, optional): input mean est. lowpass filter pole (default = 0.9): (0, 1), 
         
-        beta_n (float, optional): input variance est. lowpass filter pole (default = 0.999): (0, 1),         
+        beta_n (float, optional): input variance est. lowpass filter pole (default = 1-ss_k): (0, 1), auto-computed        
         
-        beta_o (float, optional): output smoothing. lowpass filter pole (default = 1e-4): (0, 1), 
-
-        weight_decay (float, optional): weight decay (L2-norm penalty) (default: 0),
+        weight_decay (or L2-norm penalty) or beta_o (float, optional): output smoothing. lowpass filter pole (default = 1e-5): (0, 1), 
 
         use_optim_choice (bool, optional): use optimal step-size choice by doing variance estimation (default=True),
         
-        smooth_out (bool, optional): smooth output (default=True),
-
         maximize (bool, optional): maximize the params based on the objective, 
         instead of minimizing (default: False)
         
-        auto_init_ess (bool, optional, default: True)
+        auto_init_ess, auto (bool, optional, default: True)
         
         optparams (optional): optimum param, if known, else default=None
 
@@ -262,13 +268,13 @@ class PID(Optimizer):
         >>> optimizer.step
     """
     # 
-    def __init__(self, params, *, steps_per_epoch=1, ss_init=1e-3, ss_end=0, eps_ss = 5e-1, nfl_cte = 2.5e-1, beta_i=0.9, beta_n=0.999, beta_o=1e-5, weight_decay=1e-5, use_optim_choice=True, smooth_out=True, maximize=False, auto_init_ess=True,optparams=None):
+    def __init__(self, params, *, steps_per_epoch=1, ss_init=1e-3, ss_end=0, eps_ss = 5e-1, nfl_cte = 2.5e-1, beta_i=0.9, weight_decay=1e-5, use_optim_choice=True, maximize=False, auto_init_ess=True, optparams=None):
 
         if not 0.0 < ss_init:
             raise ValueError(f"Invalid value: rho={ss_init} must be in (0,1) for tuning")
         if not 0.0 <= weight_decay:
             raise ValueError(f"Invalid weight decay value: {weight_decay}")
-        
+                
         if maximize:
             weight_decay = -weight_decay
 
@@ -281,6 +287,8 @@ class PID(Optimizer):
             self.device = torch.device('cuda')
         else:
             self.device = torch.device('cpu')
+        
+        self.weight_decay = torch.tensor(weight_decay, dtype=torch.float, device=self.device)        
         
         # eps added: div. by zero.
         self.eps = torch.tensor(1e-8, dtype=torch.float, device=self.device)
@@ -297,24 +305,15 @@ class PID(Optimizer):
         self.beta_ss = torch.exp(torch.divide(torch.log(eps_ss),steps_per_epoch))
         
         # init. LPFs
-        self.esslpf = esLPF(cdevice=self.device)
+        self.wlpf = LPF(inplace=True, direct=True, cdevice=self.device)
         self.mlpf = LPF(inplace=True, direct=True, cdevice=self.device)
         self.vlpf = LPF(inplace=True, direct=True, cdevice=self.device)
-        self.wlpf = LPF(inplace=True, direct=True, cdevice=self.device)
+        self.esslpf = esLPF(cdevice=self.device)
         
         # compute: one-pole filter gain
         self.betai = torch.tensor(beta_i, dtype=torch.float, device=self.device)
-        self.betan = torch.tensor(beta_n, dtype=torch.float, device=self.device)
-        self.betao = torch.tensor(beta_o, dtype=torch.float, device=self.device)
-        # print.
-        if self.debug:
-            strlog = f"aSGM info:\n[step-size or linear correlation value (starting := {ss_init:.4g}), (ending := {ss_end:.4g}), step-size pole : {self.beta_ss:.4g}],\n[LPF Poles [i,n,o] : {self.betai:.4g}, {self.betan:.4g}, {self.betao:.4g}]"
-            txt = "*"
-            print(f"{txt * len(strlog)}")    
-            print(strlog)
-            print(f"{txt * len(strlog)}\n")
-            
-        defaults = dict(ss_init=self.ss_init, ss_end=self.ss_end, betas=(self.betai,self.betan,self.betao,self.beta_ss), weight_decay=weight_decay,steps_per_epoch=steps_per_epoch, smooth_out= smooth_out, maximize=maximize)
+
+        defaults = dict(ss_inits=(self.ss_init,), ss_end=self.ss_end, betas=(self.betai,self.weight_decay,self.beta_ss), weight_decay=self.weight_decay,steps_per_epoch=steps_per_epoch, maximize=maximize)
         
         # if ref/opt/desired parameters are known.
         if isinstance(optparams, torch.Tensor):
@@ -361,23 +360,23 @@ class PID(Optimizer):
 
         for group in self.param_groups:
             if 'asgm' not in group:
-                group['asgm'] = AGM(self.mlpf,self.vlpf,self.wlpf,self.esslpf,
-                self.use_optim_choice,group['smooth_out'],group['maximize'], 
-                group['weight_decay'], self.eps, group['betas'], group['ss_init'], group['ss_end'], self.ss_cte, self.auto_init_ess) 
+                group['asgm'] = AGM(self.wlpf,self.mlpf,
+                  self.vlpf,self.esslpf,
+                  self.use_optim_choice,group['maximize'], 
+                  self.eps, group['betas'], group['ss_inits'], group['ss_end'], self.ss_cte, self.auto_init_ess) 
             
             asgm = group['asgm']
             
             # list of parameters, gradients, gradient notms
             params_with_grad = []
-            
             grads = []
 
             # list to hold step count
             state_steps = []
 
             # list to hold one-pole filter memory
-            mk, vk, qk, wk, ss_k = [], [], [], [], []
-
+            qk, wk, mk = [],[],[]
+            vk = []
 
             for p in group['params']:
 
@@ -398,27 +397,23 @@ class PID(Optimizer):
                         # first step count
                         state['step'] = torch.zeros((1,), dtype=torch.float, device=self.device)
 
+                        state['q'] = p.clone(memory_format=torch.preserve_format).detach() 
+                        
+                        state['w'] = p.clone(memory_format=torch.preserve_format).detach()
+                        
                         # one-pole filter memory (filter)
                         state['m'] = torch.zeros_like(
                             p, memory_format=torch.preserve_format, device=self.device)
 
                         state['v'] = torch.zeros_like(
                             p, memory_format=torch.preserve_format, device=self.device)
-
-                        state['q'] = p.clone(memory_format=torch.preserve_format).detach() 
-                        #torch.zeros_like(p, memory_format=torch.preserve_format, device=self.device)
                         
-                        state['w'] = p.clone(memory_format=torch.preserve_format).detach()
-                        
-                        state['ss'] = group['ss_init']*torch.ones_like(
-                            p, memory_format=torch.preserve_format, device=self.device) 
-                        # group['ss_init']*torch.ones((1,), device=self.device)
 
-                    mk.append(state['m'])
-                    vk.append(state['v'])
+                    
                     qk.append(state['q'])
                     wk.append(state['w'])
-                    ss_k.append(state['ss'])
+                    mk.append(state['m'])
+                    vk.append(state['v'])                  
 
                     # update the step count by 1.
                     state['step'] += 1
@@ -428,69 +423,54 @@ class PID(Optimizer):
 
             # Actual Learning Event: 
             alphaps = control_event(asgm, loss,
-                params_with_grad, grads, mk, vk, qk, wk, ss_k, group['steps_per_epoch'], state_steps, optparams_with_grad
+                params_with_grad, grads, qk, wk, mk, 
+                vk,
+                group['steps_per_epoch'], state_steps, optparams_with_grad
             )
 
         return loss, state['step']
 
 
-# Functional Interface
 @torch.no_grad()
 def control_event(asgm: AGM, loss:Tensor, 
         params: List[Tensor], grads: List[Tensor], 
-        mk: List[Tensor], vk: List[Tensor], qk: List[Tensor], wk: List[Tensor], ss_k: List[Tensor], steps_per_epoch:int, state_steps: List[Tensor], optparams: List[Tensor] | None)->Tensor:
+        qk: List[Tensor], wk: List[Tensor], mk: List[Tensor], 
+        vk: List[Tensor],
+        steps_per_epoch:int, state_steps: List[Tensor], optparams: List[Tensor] | None)->Tensor:
     
-    r"""Functional API that computes the AutoSGM control/learning algorithm for each parameter in the model.
+    r'''Functional API that computes the AutoSGM control/learning algorithm for each parameter in the model.
 
     See : [in future] class:`~torch.optim.AutoSGM` for details.
-    """
-
+    '''
+    undcp = True
     step = state_steps[0]
+    alphaps = []
+
+    #- At each step, adapt parameters (weights of the model) using 
+    # (AutoSGM) PID structure.
+    # Et[param] = Et[param + alphap*Et[grad] ] = Et[param] + alphap*Et[grad]  
     
     # cyclic step in each epoch
     step_c = (((step-1) % steps_per_epoch) + 1)
-    
-    # - At each step, adapt parameters (weights of the model) using 
-    # (AutoSGM) PID structure.
-    # Et[param] = Et[param + alphap*Et[grad] ] = Et[param] + alphap*Et[grad]  
-    alphaps = []
-    
     # uniform initial effective step-size (rough linear correlation estimation).
-    if step == 1 and asgm.auto_init_ess:
-        square_params, mean_params, square_grads, prod_pg, param_numels = [],[],[],[],[]
-        for i, param in enumerate(params):  
-            gradi = (grads[i].add(asgm.weight_decay*wk[i]))
-            errgrad = gradi.neg()
-            mean_params.append(wk[i].sum())
-            square_params.append((wk[i].square()).sum())
-            square_grads.append(((errgrad).square()).sum())            
-            param_numels.append(param.nelement())
-            prod_pg.append((param*(errgrad)).sum())
-            
-        numel_param = torch.tensor(param_numels).to(asgm.eps.device).sum()
-        gvec_sq_sqrt = (((torch.tensor(square_grads).to(asgm.eps.device).sum()).div(numel_param)).sqrt())
-        pvec_sq = ((torch.tensor(square_params).to(asgm.eps.device).sum()).div(numel_param))
-        pmean_sq = (((torch.tensor(mean_params).to(asgm.eps.device).sum()).div(numel_param)).square())
-        prod_pgvec = ((torch.tensor(prod_pg).to(asgm.eps.device).sum()).div(numel_param))
-        std_pgvec = ((pvec_sq-pmean_sq).sqrt())*(gvec_sq_sqrt)
-        rho_est = prod_pgvec/(std_pgvec.add(asgm.eps))
-        
-        asgm.ss_init.copy_(asgm.ss_cte*rho_est.abs())        
-        print(f"[ss_init: {asgm.ss_init:>.6f} <= {rho_est:>.6f} ]") # debug
+    asgm.init_lin_corr_est(params, grads, step)
     
     for i, param in enumerate(params):
-        if optparams is not None:
-            optparam = optparams[i]
-            alphap = asgm.compute_optparam(step,param,grads[i],mk[i],qk[i],wk[i],optparam)
+        
+        grad_regs = (wk[i].mul(asgm.beta_o))
+        if undcp:
+            alphap = asgm.compute_opt(
+                        step,step_c,param,grads[i],grad_regs,
+                        qk[i],wk[i],mk[i],
+                        vk[i]
+                        )
         else:
-            optparam = None
-            if asgm.use_optim_choice: 
-                alphap = asgm.compute_opt(step,step_c,param,grads[i],mk[i],vk[i],qk[i],wk[i],ss_k[i])
-            else:
-                alphap = asgm.compute_notopt(step,step_c,param,grads[i],mk[i],qk[i],wk[i],ss_k[i])
+            alphap = asgm.compute_opt_dcp(
+                        step,step_c,param,grads[i],grad_regs,
+                        qk[i],wk[i],mk[i],
+                        vk[i]
+                        )
                 
         alphaps.append(alphap)
         
     return alphaps
-
-    
