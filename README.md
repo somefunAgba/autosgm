@@ -90,13 +90,13 @@ optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches)
 ```
 Other than the two arguments above, there are other options in the function's interface, but they, most often, rarely need not be changed from their defaults.
 
-For instance, the code snippet below disables auto initializing the effective step-size (learning rate), and uses, instead, a supplied initial learning rate value of `1e-3`.
+For instance, the code snippet below disables auto initializing the effective step-size (learning rate), and uses, instead, a supplied initial learning rate value of `ss_init=1e-3`.
 ```
 optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches, ss_init=1e-3, auto_init_ess=False)
 ```
-Also, the code snippet below changes the no-free-lunch constant used in auto initializing the effective step-size (learning rate), from a default of `0.25` to a user supplied value of `0.5`.
+Also, the code snippet changes the effective step-size  to a fixed value in each epoch, by setting `eps_ss=1`.
 ```
-optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches, nfl_cte = 5e-1)
+optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches, eps_ss=1.)
 ```
 
 Other possible options are documented in the source-code for AutoSGM 
