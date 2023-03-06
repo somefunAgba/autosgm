@@ -3,9 +3,11 @@ from scipy.stats import wilcoxon
 
 import numpy as np
 
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, classification_report
+
 #
 import torch, gc
-torch.cuda.empty_cache()
+
 import torch.nn as nn
 import torch.nn.functional as tf
 from torch.utils.data import Dataset,DataLoader
@@ -41,8 +43,9 @@ from opts.asgm.torchlasgm import PID
 worker_seed = 2023
 def setseed(inc=0):
     gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.reset_peak_memory_stats()
+    if torch.cuda.device_count() > 0:
+      torch.cuda.empty_cache()
+      torch.cuda.reset_peak_memory_stats()
     
     # for redundancy
     # set seed for technical reproducibility
@@ -200,7 +203,7 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       f = 0
       # add up losses for each head
       for hid in range(self.num_heads):
-        f_hid = tf.binary_cross_entropy_with_logits(logits[hid],ytrue[hid])
+        f_hid = tf.binary_cross_entropy_with_logits(logits[hid],ytrue[hid], pos_weight=torch.tensor(self.zpr)) # 364354.13
         f = f + torch.div(f_hid,self.num_heads)
         
         yhat_hid = torch.where(logits[hid] > 0, 1., 0.) #
@@ -273,6 +276,7 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
     
     eval_loss, correct = 0., 0.
     fa, tzeros = 0., 0.
+    nd, tones = 0., 0.
     
     for batch, (data_in_batch,data_truth_batch) in enumerate(eval_dataloader):
       
@@ -306,10 +310,19 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
         # compare using indices, 
         if self.loss_type == "bce":
             pred_batch = pred_out[0]
+            
+            # detection problems
             mask = (data_truth_batch == 0)
             zeroidxs = mask.nonzero()
-            fa = fa + sum(pred_batch[zeroidxs])
-            tzeros = tzeros + len(zeroidxs)    
+            #at zeroidxs, expect 0, but sum the false 1s
+            fa = fa + sum(pred_batch[zeroidxs]) 
+            tzeros = tzeros + len(zeroidxs)   
+            
+            mask1 = (data_truth_batch == 1)
+            oneidxs = mask1.nonzero()
+            #at oneidxs, expect 1, so sum the detected 1s
+            nd = nd + sum(pred_batch[oneidxs]) 
+            tones = tones + len(oneidxs)   
       else:
         correct = None
     
@@ -329,8 +342,9 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       
     if self.loss_type == "bce":
       fa = (fa/tzeros).item()
+      nd = (nd/tones).item()
       # logs
-      print(f"{eval_name}: [ Avg Loss: {eval_loss:>0.4f}, Accuracy: {(eval_accuracy):>0.2f}%,  FA = {fa*100:>0.6f}% ]")
+      print(f"{eval_name}: [ Avg Loss: {eval_loss:>0.4f}, Accuracy: {(eval_accuracy):>0.2f}%,  TA = {nd*100:>0.6f}%, FA = {fa*100:>0.6f}% ]")
       print(f"Elapsed Inf. time: {walltime:.2f}-mins.\n ")
     else:
       fa = None     
@@ -372,9 +386,10 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       self.train() # configure model in train mode.
       train_loss, correct = 0., 0.      
       fa, tzeros = 0., 0.
+      nd, tones = 0., 0.
       
       walltime = time.time()
-      torch.cuda.synchronize()
+      if torch.cuda.device_count() > 0: torch.cuda.synchronize()
       # a single epoch
       for k, (data_in_batch,data_truth_batch) in enumerate(train_dataloader):
         # k = a single step out of steps[_per_epoch] equivalent to
@@ -399,17 +414,22 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
         if self.outs_class:
           correct += correct_one_batch
           
-          # TODO: binary classification only.
           # false positive (alarm) rate = number of false ones divided by total number of zeros
           # get zeroidx indices of ground truth batch with zeros
           # compare using indices, 
           if self.loss_type == "bce":
             pred_batch = pred_out[0]
+            
+            # detection problems
             mask = (data_truth_batch == 0)
             zeroidxs = mask.nonzero()
             fa = fa + torch.sum(pred_batch[zeroidxs,:])
-            tzeros = tzeros + len(zeroidxs)          
-            
+            tzeros = tzeros + len(zeroidxs)  
+                    
+            mask = (data_truth_batch == 1)
+            oneidxs = mask.nonzero()
+            nd = nd + torch.sum(pred_batch[oneidxs,:])
+            tones = tones + len(oneidxs)               
         else:
           correct = None
           
@@ -426,11 +446,12 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       
       if self.loss_type == "bce":
         fa = (fa/tzeros).item()
+        nd = (nd/tones).item()
         # logs.
         # train logs.
         print(f"{t+1}: Elapsed Train time: {walltime:.2f}-mins.") 
         print(f"Batches/Steps/Iterations per Epoch: {num_batches:>5d}")
-        print(f"Train:\t[ Avg Loss: {train_loss:>0.4f}, Accuracy: {(train_accuracy):>0.2f}%, FA = {fa*100:>0.6f}% ] ", end=' || ')
+        print(f"Train:\t[ Avg Loss: {train_loss:>0.4f}, Accuracy: {(train_accuracy):>0.2f}%, TA = {nd*100:>0.6f}%, FA = {fa*100:>0.6f}% ] ", end=' || ')
       else:
         fa = None
         # logs.
@@ -450,7 +471,12 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       
       # save better model of the test data at each epoch (Validation)
       # the last saved model is the best for a single training run
-      if (best_acc < test_accuracy):  # or (oloss > loss):
+      if self.loss_type == "bce":
+        chkpt_condtn = (best_loss > test_loss)
+      else:
+        chkpt_condtn = (best_acc < test_accuracy)
+              
+      if (chkpt_condtn):  # or (oloss > loss):
         
         path_to_saved_mdl = f"{storedir}/{mdl_name_dir}/stores/mdls"
         os.makedirs(path_to_saved_mdl, exist_ok=True)
@@ -483,8 +509,8 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
     
     # clear optimizer state, after a single training run 
     self.sgm.state.clear()
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
+    if torch.cuda.device_count() > 0:
+      torch.cuda.empty_cache(); torch.cuda.synchronize()
     
     return train_losses, train_accs, test_losses, test_accs
     
@@ -492,6 +518,11 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
     
   @clsmethod(thisNN)
   def runs(self:thisNN, train_data, test_data, cfgs=None, eval_name="Test"):
+    
+    # self = torch.compile(self) # no win support
+    
+    if self.loss_type == "bce":
+      self.zpr = train_data.zpr
     
     batch_size = cfgs["batch-size"]
     num_workers = cfgs["num-workers"] 
@@ -654,9 +685,13 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
       # Compute Effective Test-Accuracy:
       # mean accuracy - mean pred.difference
       # eff_test_acc = (np.mean(np.array(dev_accs_list_per_run))-np.mean(np.array(actual_pdiff_list)))/total_datapts  
+      # avg_test_acc = (np.mean(np.max(np.array(dev_accs_list_per_run),1)))
+      # avg_pred_diff = ((np.mean(np.array(pdiff_list))))  
+      # eff_test_acc = avg_test_acc - avg_pred_diff
       avg_test_acc = (np.mean(np.max(np.array(dev_accs_list_per_run),1)))
       avg_pred_diff = ((np.mean(np.array(pdiff_list))))  
-      eff_test_acc = avg_test_acc - avg_pred_diff
+      eff_test_acc = (avg_test_acc/100) - (avg_pred_diff) # fractional form
+            
       
       # - Save Pdiff  
       df = pd.DataFrame(pdiff_list)
@@ -685,9 +720,9 @@ def add_to_thisnn(thisNN,worker_seed,setseed,cseedwk) -> None:
         run_cfgs['med_stat'] = med_stat
         run_cfgs['pval'] = pval
       
-      strlog = f"Effective Test Accuracy = {eff_test_acc:.2f}%, pval={pval:.4f}"
+      strlog = f"Effective Test Accuracy = {eff_test_acc:.4f}%, pval={pval:.4f}"
       print(f"{txt * len(strlog)}")    
-      print(f"Average Prediction Difference = {avg_pred_diff:.2f}%")
+      print(f"Average Prediction Difference = {avg_pred_diff:.4f}")
       print(strlog)
       print(f"{txt * len(strlog)}\n")   
       
@@ -710,7 +745,8 @@ else:
     })
 
 
-def plotter_v1(cfgs,run_idx=1):
+# -- PLOTTER ---
+def plotter_v1(cfgs,run_idx=1, bce=False):
 
   try:
     saved_cfgs_path = f"{storedir}/{mdl_name_dir}/stores/exp_cfg/cfgs_{pathstr}.json"
@@ -748,6 +784,32 @@ def plotter_v1(cfgs,run_idx=1):
   # access the data
   dev_loss_per_run = dfl.iloc[0:,run_idx]
   dev_acc_per_run = dfa.iloc[0:,run_idx]
+  
+  
+  # optional confusion matrix for bce
+  if bce:
+    path_preds_file= f"{storedir}/{mdl_name_dir}/stores/preds/preds_{pathstr}"
+    dfp = pd.read_csv(path_preds_file+".csv")
+    ypreds = eval(dfp.iloc[0:, run_idx][0])
+    ytrue = eval(dfp.iloc[0:,-1][0])
+    target_names = ['class 0', 'class 1']
+    labels= [0,1]
+    cm = confusion_matrix(ytrue, ypreds, labels=labels)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=target_names)
+    # dimax = disp.im_
+    # dax = disp.ax_
+    dfig = disp.figure_
+    dfig.set_figwidth(3)
+    dfig.set_figheight(3)
+    disp.plot()
+    
+    
+    print(classification_report(ytrue, ypreds, target_names=target_names))
+    # print(classification_report(ytrue, ypreds, labels=labels))
+    
+    # df_cm = pd.DataFrame(cf_matrix / np.sum(cf_matrix, axis=1), index = [i for i in classes], columns = [i for i in classes])
+    # plt.figure(figsize = (12,7))
+    # plt.heatmap(df_cm, annot=True)
 
 
   #inputs:

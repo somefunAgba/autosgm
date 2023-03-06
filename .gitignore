@@ -2,6 +2,7 @@ expstore
 data/CIFAR*
 data/FashionMNIST
 data/ipg_dummy_seizure
+data/D2
 demoseizure.ipynb
 demotmp.ipynb
 __pycache__
@@ -13,6 +14,7 @@ opts/asgm/old/*
 opts/elpf/testsel_torch.ipynb
 opts/elpf/testsel.ipynb
 demo3show.ipynb
+demod2.ipynb
 jobs
 *.nbconvert.ipynb
 data/t01
