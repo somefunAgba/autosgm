@@ -1,5 +1,5 @@
 # AutoSGM
-AutoSGM: Automatic (Stochastic) Gradient Method. ```output = AutoSGM{input}```
+An Implementation of AutoSGM: Automatic (Stochastic) Gradient Method. ```output = AutoSGM{input}```
 
 Expected `input` is a first-order gradient. 
 `output` is an estimate of each parameter in an (artificial) neural network. 
@@ -13,17 +13,18 @@ A neural network is a gradient-generating function or system (well-defined diffe
   state <-  It{state,input,alpha_t} := state + alpha_t*input
   output <- Et{state}
 ```
+With this framework for momentem-based SGD algorithms, we only have one gradient method, with different approaches to setting-up the step-size `alpha_t` parameter and filtering parameters for `Et` and `Dt`. 
 
 ## Unified Framework  
-From an automatic control perspective, AutoSGM is an accelerated learning framework that has: 
+AutoSGM is an accelerated learning framework which contains: 
 
 + an active lowpass filtering component 'Et' regularizing its input. 
 
-+ optional time-derivative 'Dt' component. 
++ optional time-difference or highpass filtering 'Dt' component. 
 
 + a proportional component 'alpha_t'.
 
-+ a time-integral 'It' component. 
++ a time-integration 'It' component. 
 
 + optional lowpass filtering component 'Et' at its output.
 
