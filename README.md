@@ -4,7 +4,7 @@ Implementation(s) of AutoSGM: Automatic (Stochastic) Gradient Method. ```output 
 Expected `input` is a first-order gradient. 
 `output` is an estimate of each parameter in an (artificial) neural network. 
 
-A neural network is a gradient-generating function or system (well-defined differentiable function)
+An artificial neural network (a well-defined differentiable function) is a gradient-generating function or system.
 
 <img src="./cntrlblk.svg" width="800">   
 
@@ -13,7 +13,7 @@ A neural network is a gradient-generating function or system (well-defined diffe
   state <-  It{state,input,alpha_t} := state + alpha_t*input
   output <- Et{state}
 ```
-With this framework, we only have one gradient method, with different approaches to setting-up the step-size `alpha_t` parameter and filtering parameters for `Et` and `Dt`, which leads to different momentum-based SGD variants in the literature.
+With this framework, we only have one gradient method, with different approaches or metrics to setting-up the step-size `alpha_t` parameter and filtering parameters for `Et` and `Dt`, which leads to different momentum-based SGD variants in the literature.
 
 ## Unified Framework  
 AutoSGM is an accelerated learning framework which contains: 
@@ -57,7 +57,7 @@ Download or Clone (cloning requires `git` on your machine).
 
 **Calling AutoSGM**
 
-Load AutoSGM package. (This assumes this library, was git cloned to an `opts`` directory on the root path of your project.)
+Load AutoSGM implementation package. (This assumes this library, was git cloned to an `opts`` directory on the root path of your project.)
 ```
 ...
 import opts.asgm as AutoSGM
