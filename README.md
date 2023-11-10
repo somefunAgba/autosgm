@@ -20,7 +20,7 @@ AutoSGM is an accelerated learning framework which contains:
 
 + an active lowpass filtering component `Et` regularizing its input. 
 
-+ optional time-difference or highpass filtering `Dt` component. 
++ optional time-differencing or highpass filtering in a `Dt` component. 
 
 + a proportional component `alpha_t`.
 
@@ -32,7 +32,7 @@ This framework attempts to provide a clearer understanding of the three practica
 
 ### Basic signal-processing and control knowledge: 
 
-+ the time-derivative `Dt` component at the input is most always sensitive to input noise, so should usually be turned off.
++ the time-differencing in the `Dt` component at the input is most always sensitive to input noise, so should usually be turned off.
 
 + the lowpass filtering `Et` component at the output often adds unnecessary delay to the output estimates, so should usually be turned off.
 
@@ -65,7 +65,7 @@ import opts.asgm as AutoSGM
 ```
 ****
 
-Using PyTorch, you have constructed a neural network called `mmn`, 
+Using PyTorch, say you have constructed a neural network called `mmn`, 
 you can then: call an instance of the loaded AutoSGM, pass in the parameters of the model `mmn.parameters()`, and set other options.
 ```
 optimizer = AutoSGM(mnn.parameters(), spe=len(train_dataloader))
