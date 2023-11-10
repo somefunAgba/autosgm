@@ -89,7 +89,7 @@ Here in this [README.md](README.md), we provide some instructions to run the [co
 
 
 ## Disclaimer
-The code implementations and style in this repo. is still undergoing active development
+The code implementations and style in this repository is still undergoing active development as part of my PhD work. Feel free to raise an issue, if you detect any bug or you have any questions.
 
 
 
