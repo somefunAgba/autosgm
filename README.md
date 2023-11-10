@@ -37,7 +37,7 @@ This framework attempts to provide a clearer understanding of the three practica
 + the lowpass filtering 'Et' component at the output often adds unnecessary delay to the output estimates, so should usually be turned off.
 
 ## Dependencies
-PyTorch. Peek in the [requirements.txt](requirements.txt) file.
+PyTorch. Numpy. Peek in the [requirements.txt](requirements.txt) file.
 <!-- 
 Our code is entirely in Python, so we provide a [requirements.txt](requirements.txt) file through which using `pip` and optionally `virtualenv`, the python environment used by us can be reproduced. You may check 
 [Installing packages using pip and virtual environments](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/)
