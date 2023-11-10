@@ -878,8 +878,7 @@ def _single_tensor_sgm(com_sets:common_sets, steps: List[Tensor],
         
         # gradss_t_min_1 = g_t_min_1.mul(g_t)
         gradss_t_min_1 = m_t_min_1.mul(g_t)
-        if step == 1:
-            gradss_t_min_1 = 0
+        # if step == 1: gradss_t_min_1 = 0
         
         m_t, grad_smth = com_sets.lpf.compute(in_k=g_t, x=grad_smth, beta=beta_i, step=step)
         
