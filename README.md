@@ -1,3 +1,35 @@
+# AutoSGM
+AutoSGM: Automatic (Stochastic) Gradient Method. ```output = AutoSGM{input}```
+
+Expected `input` is a first-order gradient. 
+`output` is an estimate of each parameter in an (artificial) neural network. 
+
+<img src="./lasgm_blkview.svg" width="500">   
+
+```
+  input <- Et{Dt{-g}} or Dt{Et{-g}}
+  state <-  It{state,input,alpha_t} := state + alpha_t*input
+  output <- Et{state}
+```
+
+## Unified Framework  
+From an automatic control perspective, AutoSGM is an accelerated learning framework that has: 
+
++ an active lowpass filtering component 'Et' regularizing its input. 
+
++ optional time-derivative 'Dt' component. 
+
++ a proportional component 'alpha_t'.
+
++ a time-integral 'It' component. 
+
++ optional lowpass filtering component 'Et' at its output.
+
+### Basic signal-processing and control knowledge: 
+
++ the time-derivative component is most always sensitive to input noise, so should usually be turned off.
+
++ the lowpass filtering 'Et' component at the output often adds unnecessary delay to the output estimates, so should usually be turned off.
 
 ## Dependencies
 PyTorch. Peek in the [requirements.txt](requirements.txt) file.
