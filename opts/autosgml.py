@@ -99,17 +99,18 @@ def grad_build(com_sets, device, dtype, step, pl, grad_lev, grad_smth_lev, grad_
     
   # denominator of the optimal step_size
   # in: averaging [lowpass] ~ approx. input variance   
-   #TODO: switch to or not to: 
-   # normalize all levels or normalize last level only
-  if pl == levels-1:
-    # if step > 1:
-    #   v_var_t_min_1 = com_sets.lpf.previous(xkm1=grad_var_lev[pl], beta=beta_i, step=step)
-    #   m_t_min_1.div_((v_var_t_min_1.sqrt()).add_(eps))
-      
+ 
+  if pl == levels-1 or com_sets.levelnorm:
+    # normalize all levels or normalize last level only  
+    if step > 1:
+      v_var_t_min_1 = com_sets.lpf.previous(xkm1=grad_var_lev[pl], beta=beta_i, step=step)
+      m_t_min_1.div_((v_var_t_min_1.sqrt()).add_(eps))
+
     v_var_t, grad_var_lev[pl] = com_sets.lpf.compute(in_k=(g_t*g_t.conj()), x=grad_var_lev[pl], beta=beta_e, step=step)
     # normalized input
     # malt_t = m_t.div((v_var_t.add(eps)).sqrt_())
     (m_t).div_((v_var_t.sqrt()).add_(eps))    
+
     
   return g_t, m_t, m_t_min_1    
         
@@ -516,6 +517,7 @@ class common_sets():
         self.est_numels = 0
         self.rstfact = 2
         self.epfreq = epfreq
+        self.levelnorm = True
         
     @torch.no_grad()
     def grp_devdt(self, device, dtype):
@@ -531,6 +533,7 @@ class common_sets():
         wd_cte = self.wd_cte*fone
         auto_mode = self.auto_mode 
         levels = self.p
+        
         return lr_init, beta_i, beta_e, beta_a, beta_o, beta_d, eps, wd_cte, fzero, fone, auto_mode, levels        
     
     @torch.no_grad()
