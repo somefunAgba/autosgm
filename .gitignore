@@ -1,3 +1,4 @@
+.vscode/
 expstore
 data/CIFAR*
 data/FashionMNIST
