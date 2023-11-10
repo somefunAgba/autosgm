@@ -1,108 +1,93 @@
+# Supplementary Material
 
-# AutoSGM
-Official PyTorch implementation of the (Stochastic) Gradient Method, the automatic iterative learning (or control) algorithm that linearly transforms first-order gradients of a well-defined objective function to estimates of parameters (data representations) in a well-defined differentiable function (artificial neural network).
+This supplementary material contains the [Appendices](Appendices_asgm_nips.pdf) to support the submitted main-text in the AutoSGM paper and also reproduce the results shown in the paper. 
 
-<img src="./lasgm_blkview.svg" width="500">
+Here in this [README.md](README.md), we provide some instructions to run the [code](notebooks/) 
 
-## What is this library about?
-This library implements the *first-order gradient method*, for learning the parameters in a pre-defined (artificial) neural network (any appropriate composition of differntiable functions) that is used to fit a data-set. 
+## Installing dependencies
 
-This method automatically arises as the empirical form of the best possible learning algorithm (*minimum bayes risk control function*) in the class of linear control functions. We call it **AutoSGM**.
+Our code is entirely in Python, so we provide a [requirements.txt](requirements.txt) file through which using `pip` and optionally `virtualenv`, the python environment used by us can be reproduced. You may check 
+[Installing packages using pip and virtual environments](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/)
+for best practices on this.
 
-Standing on the shoulders of about 7 decades of literature, this work attempts to provide a clearer understanding of the three practical accelerated learning variants of the (Stochastic) Gradient Method (SGM), namely: *Polyak's Heavy ball*, *Nesterov Accelerated Gradient*, *Adaptive Moment Estimation* by presenting AutoSGM as their unifying representation for accelerated learning.
+`pip install -r requirements.txt`
 
 
-## Getting Started (installing or setting up)
-
-- Download or Clone (cloning requires `git` on your machine).
-```
->> git clone https://github.com/somefunagba/autosgm.git
-```
-
-- Installing necessary python libraries (if not on your machine).
-
-This library uses PyTorch and Numpy, so they should be installed as Python libraries on your machine or virtual environment (if not already present). 
-For example, using pip:
-```
->> pip install watermark numpy scipy pandas matplotlib torch torchvision 
-```
-
-## Folder Structure 
-Next, the folders in the root directory are structured as shown below:
-
+## Directory structure 
+The folders in the root directory are structured as shown below:
 ```
 - root folder
-  |-- .vscode\
   |-- arcs\
-  |-- cmps_demo\
   |-- data\
   |-- expstore\
   |-- notebks\
   |-- opts\
+  |-- results\
 ```
-The ` opts ` folder contains the source-code for AutoSGM.
+The `opts` folder contains the source-code [asgm.py](opts/asgm.py) for the implemented AutoSGM algorithm.
 
-### Demo Scripts
-Included in the ``notebks`` directory are some ``demo[x].show.ipynb`` files that, using AutoSGM both help to demonstrate example neural network training with PyTorch.
+In the ``notebks`` directory we include scripts and jupyter notebooks that aid in using [asgm.py](opts/asgm.py) for training and evaluating a neural network with PyTorch. The `results` directory contains already saved plots obtained from running the files in the `notebks` directory. 
 
-For instance, to quickly check if your clone of this library is working right, locate ``demo1show.ipynb`` and run a neural network fitting to a toy dataset.
+- [demo2nips.ipynb](notebks/demo2nips.ipynb)
+Trains a custom fully connected neural network (Attention) on FMNIST data
 
-The code in the ``demo[x]show.ipynb`` files, where `x` is an integer, mostly follows PyTorch's recipe and the outline is:
+- [demo4nips.ipynb](notebks/demo4nips.ipynb)
+Trains a convolutional neural network (LeNet) on FMNIST data
 
+- [demoxnips.ipynb](notebks/demoxnips.ipynb)
+Trains a custom (5-layer) neural network on CIFAR10 data 
+
+- [demo10nips.ipynb](notebks/demo10nips.ipynb)
+Trains a convolutional neural network (ResNet-18) on CIFAR10 data 
+
+- [demoxnips_lrdist.ipynb](notebks/demoxnips_lrdist.ipynb)
+Trains a custom (5-layer) neural network on CIFAR10 data and plots the learning rate distribution per training iteration 
+
+- [nnrosbrk_lrdist.ipynb](notebks/nnrosbrk_lrdist.ipynb)
+Trains a Rosenbrock test function and plots the learning rate distribution per iteration.
+
+The code in the files, mostly follows PyTorch's recipe and the outline is:
 - Load Required Libraries
 - Setup Configurations (Hyperparameters and so on)
 - Load the Dataset
 - Construct Model (Differentiable Function) with  necessary methods.
-- Run the Network Modeling (Training)
+- Train and Evaluate the Network Model
 
-The ` data ` directory stores raw data which form the basis for the whole learning setup.
-The ` arcs ` directory is meant to store any custom neural network architecture.
-The `expstore` directory stores training information, graphic plots and saved models, when each `demo[x]show.ipynb` file is run.
-The `cmps_demo` directory contains code to compare two or more saved results in the `expstore` directory
+The `data` directory stores raw data which form the basis for the whole learning setup.
+The `arcs` directory contains a [resnet.py](arcs/resnet.py) source code.
+The `expstore` directory stores training information, graphic plots and saved models obtained from running a jupyter notebook file in the `notebks` directory.
 
-Not exhaustive:
+**Training and Evaluation code**
+There is a common script [demofcns.py](notebks/demofcns.py) called by all other files in `notebks`. These files serve for both training and evaluating the experimental results shown in the paper. 
 
-- `demo2show.ipynb`.
-Trains a custom fully connected network (Attention) on FMNIST data
+We also include a [savedmdls](expstore/savedmdls) directory which contains already trained models obtained from running [demoxnips.ipynb](notebks/demoxnips.ipynb).
 
-- `demo4show.ipynb`.
-Trains a custom convolutional network (LeNet) on FMNIST data
 
-- `demo5show.ipynb`.
-Trains a custom convolutional network (ResNet-6) on FMNIST data 
-
-## API: Quick Use case (how tos?)
-
-> This work is an ongoing research and the function interface might slightly change in the future.
+## API: Quick Use case
 
 **Load AutoSGM**
 ```
-import opts.asgm.torchlasgm as asgm
+import opts.asgm as AutoSGM
 ...
 ```
 
 **Call AutoSGM**
 
 Say, you have defined a neural network called `nn_model`, then the quickest and minimal way to use this for training, is to call an instance of the loaded AutoSGM
-and pass in the model parameters `nn_model.parameters()` and the number of batches `num_batches` which is the data-size divided by batch-size.
+and pass in the model parameters `nn_model.parameters()` and enable `cuda` if desired.
 ```
-optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches)
+optimizer = AutoSGM(nn_model.parameters(), usecuda=True)
 ```
-Other than the two arguments above, there are other options in the function's interface, but they, most often, rarely need not be changed from their defaults.
+More possible options are documented in [asgm.py](opts/asgm.py). Most often, the other options rarely need not be changed from their defaults.
+For instance, the code snippet below disables the automatic parameter iteration dependent learning rate and uses a constant learning rate value of `lr_init=1e-2` which is the same as running Adam.
+```
+optimizer = AutoSGM(nn_model.parameters(), lr_init=1e-2, auto=False)
+```
+You could also renable the automatic iteration dependent learning rate function and optionally start it with an initial value of `lr_init=1e-2`.
+```
+optimizer = AutoSGM(nn_model.parameters(), lr_init=1e-2)
+```
 
-For instance, the code snippet below disables auto initializing the effective step-size (learning rate), and uses, instead, a supplied initial learning rate value of `ss_init=1e-3`.
-```
-optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches, ss_init=1e-3, auto_init_ess=False)
-```
-Also, the code snippet changes the effective step-size  to a fixed value in each epoch, by setting `eps_ss=1`.
-```
-optimizer = asgm.PID(nn_model.parameters(),steps_per_epoch=num_batches, eps_ss=1.)
-```
+## Contributing
 
-Other possible options are documented in the source-code for AutoSGM 
-
-
-## Bugs, Issues, Suggestions or Questions (need help?)
-Please, create a new issue or email me at `somefuno@oregonstate.edu`.
-
-> This doc. might slightly change in the future.
+If you'd like to contribute, or have any suggestions, contact the authors.

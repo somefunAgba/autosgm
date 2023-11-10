@@ -18,4 +18,16 @@ demod2.ipynb
 jobs
 *.nbconvert.ipynb
 data/t01
-*.yml
+*.yml.vscode/
+arcs/
+data/
+expstore/
+fromhpc/
+Imagenet32_Scripts/
+Imagenet32_Scripts/*
+notebks/
+results/
+opts/bins
+Appendices_asgm_nips.pdf
+__init__.py
+__pycache__
