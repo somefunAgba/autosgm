@@ -1,5 +1,5 @@
 # AutoSGM
-An Implementation of AutoSGM: Automatic (Stochastic) Gradient Method. ```output = AutoSGM{input}```
+Implementation(s) of AutoSGM: Automatic (Stochastic) Gradient Method. ```output = AutoSGM{input}```
 
 Expected `input` is a first-order gradient. 
 `output` is an estimate of each parameter in an (artificial) neural network. 
@@ -76,9 +76,9 @@ optimizer = AutoSGM(mnn.parameters(), spe=len(train_dataloader), epfreq=10)
 `epfreq` indicates the successive per-epoch frequency of restarting the lowpass filter generating the learning rates. Defaults to `1`, restarting every epoch, if not specified.
 
 More possible options are documented in each AutoSGM implementations in the [opts](opts/) directory. 
-Most options rarely need not be changed from their defaults.
+Most options likely need not be changed from their defaults.
 
-For instance, the code snippet below disables the automatic parameter iteration dependent learning rate and uses a constant learning rate value of `lr_init=2e-3` which is the same as running Adam.
+For instance, the code snippet below disables the automatic parameter iteration dependent learning rate and uses a single constant learning rate value of `lr_init=2e-3` which is the same as running Adam.
 ```
 optimizer = AutoSGM(mnn.parameters(), lr_init=2e-3, autolr=False)
 ```
