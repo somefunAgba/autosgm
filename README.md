@@ -55,12 +55,12 @@ Download or Clone (cloning requires `git` on your machine).
 
 ## PyTorch API:
 
-**Calling AutoSGM**
+**Calling an AutoSGM implementation**
 
-Load AutoSGM implementation package. (This assumes this library, was git cloned to an `opts`` directory on the root path of your project.)
+Load an AutoSGM implementation. (This assumes this library, was git cloned to an `opts`` directory on the root path of your project.)
 ```
 ...
-import opts.asgm as AutoSGM
+import opts.autosgm as AutoSGM
 ...
 ```
 ****
