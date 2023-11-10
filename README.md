@@ -13,28 +13,28 @@ A neural network is a gradient-generating function or system (well-defined diffe
   state <-  It{state,input,alpha_t} := state + alpha_t*input
   output <- Et{state}
 ```
-With this framework for momentem-based SGD algorithms, we only have one gradient method, with different approaches to setting-up the step-size `alpha_t` parameter and filtering parameters for `Et` and `Dt`. 
+With this framework, we only have one gradient method, with different approaches to setting-up the step-size `alpha_t` parameter and filtering parameters for `Et` and `Dt`, which leads to different momentum-based SGD variants in the literature.
 
 ## Unified Framework  
 AutoSGM is an accelerated learning framework which contains: 
 
-+ an active lowpass filtering component 'Et' regularizing its input. 
++ an active lowpass filtering component `Et` regularizing its input. 
 
-+ optional time-difference or highpass filtering 'Dt' component. 
++ optional time-difference or highpass filtering `Dt` component. 
 
-+ a proportional component 'alpha_t'.
++ a proportional component `alpha_t`.
 
-+ a time-integration 'It' component. 
++ a time-integration `It` component. 
 
-+ optional lowpass filtering component 'Et' at its output.
++ optional lowpass filtering component `Et `at its output.
 
 This framework attempts to provide a clearer understanding of the three practical accelerated learning variants of the (Stochastic) Gradient Method (SGM), namely: *Polyak's Heavy ball*, *Nesterov Accelerated Gradient*, *Adaptive Moment Estimation* by presenting AutoSGM as their unifying representation for accelerated learning.
 
 ### Basic signal-processing and control knowledge: 
 
-+ the time-derivative component is most always sensitive to input noise, so should usually be turned off.
++ the time-derivative `Dt` component at the input is most always sensitive to input noise, so should usually be turned off.
 
-+ the lowpass filtering 'Et' component at the output often adds unnecessary delay to the output estimates, so should usually be turned off.
++ the lowpass filtering `Et` component at the output often adds unnecessary delay to the output estimates, so should usually be turned off.
 
 ## Dependencies
 PyTorch. Numpy. Peek in the [requirements.txt](requirements.txt) file.
