@@ -4,7 +4,9 @@ AutoSGM: Automatic (Stochastic) Gradient Method. ```output = AutoSGM{input}```
 Expected `input` is a first-order gradient. 
 `output` is an estimate of each parameter in an (artificial) neural network. 
 
-<img src="./lasgm_blkview.svg" width="500">   
+A neural network is a gradient-generating function or system (well-defined differentiable function)
+
+<img src="./cntrlblk.svg" width="800">   
 
 ```
   input <- Et{Dt{-g}} or Dt{Et{-g}}
@@ -25,6 +27,8 @@ From an automatic control perspective, AutoSGM is an accelerated learning framew
 
 + optional lowpass filtering component 'Et' at its output.
 
+This framework attempts to provide a clearer understanding of the three practical accelerated learning variants of the (Stochastic) Gradient Method (SGM), namely: *Polyak's Heavy ball*, *Nesterov Accelerated Gradient*, *Adaptive Moment Estimation* by presenting AutoSGM as their unifying representation for accelerated learning.
+
 ### Basic signal-processing and control knowledge: 
 
 + the time-derivative component is most always sensitive to input noise, so should usually be turned off.
@@ -40,6 +44,11 @@ for best practices on this.
 
 `pip install -r requirements.txt` -->
 
+## Getting Started (installing)
+Download or Clone (cloning requires `git` on your machine).
+```
+>> git clone https://github.com/somefunagba/autosgm.git
+```
 
 <!-- ## Directory structure  -->
 
@@ -47,7 +56,7 @@ for best practices on this.
 
 **Calling AutoSGM**
 
-Load AutoSGM package. (This assumes this library, was cloned to an `opts`` directory on the root path of your project.)
+Load AutoSGM package. (This assumes this library, was git cloned to an `opts`` directory on the root path of your project.)
 ```
 ...
 import opts.asgm as AutoSGM
