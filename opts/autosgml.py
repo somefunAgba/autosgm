@@ -37,149 +37,15 @@ from torch.utils._foreach_utils import _group_tensors_by_device_and_dtype
 
 __all__ = ['AutoSGM', 'autosgm']
 
-
-#Smooth HPF
-def smooth_td(beta_d, curr:Tensor, past:Tensor):
-    """ Smooth First-order Digital Differentiator
-    
-    A smooth digital high-pass filter for time-differentiation
-    
-    Args:
-        beta_d (>= 0)
-        
-        curr current input
-        
-        past past input
-    """
-    
-    return (curr-past).mul_(curr+past).mul_(0.5*beta_d)  
-
-# Trace Gradient Inputs
-def grad_build(com_sets, device, dtype, step, pl, grad_lev, grad_smth_lev, grad_var_lev, old_v_t, param_lev):
-  
-  lr_init, beta_i, beta_e, beta_a, \
-  beta_o, beta_d, eps, \
-  param_decay, fzero, fone, auto_mode, levels = com_sets.grp_devdt(device,dtype)
-  
-  if pl != 0:
-    grad_lev[pl].mul_(0).add_(old_v_t.mul(grad_lev[pl-1]))
-  g_t = 1*grad_lev[pl]  
-  
-  if pl == 0:  
-    g_t = com_sets.lpf.patch(g_t,beta=beta_o,step=step) 
-    mwd = 1
-    if param_decay is not None:
-      mwd = 1-param_decay
-    if com_sets.join_wdec:
-        # decay weight directly
-        param_lev[pl].mul_(mwd)
-    else:
-        # decay weight as l2-regularized gradient
-        g_t.addcmul_(param_lev[pl],param_decay)
-    
-  # flip sign, if maximizing.   
-  if com_sets.down or com_sets.maximize: 
-    g_t.neg_()
-                   
-  # smooth input [lowpass]
-  if pl == 0:  
-    m_t_min_1 = com_sets.lpf.previous(xkm1=grad_smth_lev[pl], beta=beta_i, step=step)
-    m_t, grad_smth_lev[pl] = com_sets.lpf.compute(in_k=g_t, x=grad_smth_lev[pl], beta=beta_i, step=step)
-  else:
-    m_t_min_1 = 1*grad_smth_lev[pl]
-    grad_smth_lev[pl].mul_(0).add_(g_t)
-    m_t = 1*g_t
-
-  # smooth input [add average time-diff] 
-  if beta_d > 0:
-    if step == 1: v_diff = 0
-    else: v_diff = smooth_td(beta_d, m_t, m_t_min_1)
-    g_t.add_(v_diff)
-    m_t.add_(v_diff)
-    
-  # denominator of the optimal step_size
-  # in: averaging [lowpass] ~ approx. input variance   
- 
-  if pl == levels-1 or com_sets.levelnorm:
-    # normalize all levels or normalize last level only  
-    if step > 1:
-      v_var_t_min_1 = com_sets.lpf.previous(xkm1=grad_var_lev[pl], beta=beta_i, step=step)
-      m_t_min_1.div_((v_var_t_min_1.sqrt()).add_(eps))
-
-    v_var_t, grad_var_lev[pl] = com_sets.lpf.compute(in_k=(g_t*g_t.conj()), x=grad_var_lev[pl], beta=beta_e, step=step)
-    # normalized input
-    # malt_t = m_t.div((v_var_t.add(eps)).sqrt_())
-    (m_t).div_((v_var_t.sqrt()).add_(eps))    
-
-    
-  return g_t, m_t, m_t_min_1    
-        
-    # END 
-
-# Integrator
-def integrator(com_sets, w_t, m_t, rpl, alpha_hat_t):
-    if rpl == 0:
-      if com_sets.down:
-        w_t[rpl].addcmul_(m_t[rpl], alpha_hat_t)
-      else:
-        w_t[rpl].addcmul_(m_t[rpl], alpha_hat_t, value=-1)
-    else:
-      if com_sets.down:
-        w_t[rpl].addcmul_(m_t[rpl], alpha_hat_t, value=-1)
-      else:
-        w_t[rpl].addcmul_(m_t[rpl], alpha_hat_t)
+def cmplx2real(lols):
+    "input: List of Lists"
+    return [[torch.view_as_real(tsr) 
+            if torch.is_complex(tsr) else tsr 
+                for tsr in lst] 
+                    for lst in lols]
 
 
-def lr_compute(com_sets, device, dtype, step, rpl, 
-               g_t, m_t, w_t, grad_var, lr_avga, lr_avgb):
-  
-  lr_init, beta_i, beta_e, beta_a, \
-  beta_o, beta_d, eps, \
-  param_decay, fzero, fone, auto_mode, levels = com_sets.grp_devdt(device,dtype)
-  
-  # com_sets.autolr = False
-  # learning rate estimation
-  if com_sets.autolr and com_sets.auto_mode in [0,1]:
-      # computes numerator of the bayes-optimal step_size
-      # computes approx. linear correlation funcion 
-      
-      # surrogate approx. without w^\star 
-      ewg_t = m_t[rpl].mul(w_t[rpl])
-      if rpl == 0:
-        if not com_sets.join_wdec:
-          mwd = 1
-        if param_decay is not None:
-            mwd = 1-param_decay
-        ewg_t =ewg_t.mul_(mwd)
-          
-      # restart logic: idea is that, after the first k epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs, with an averagely constant learning-rate for each parameter.
-      # cyclic step
-      step_c = (((step-1) % (com_sets.spe*com_sets.epfreq)) + 1)
-      # restart lowpass state at the end of every 'k' epoch.
-      if com_sets.restarts and step_c == 1 and step > 1:
-          lr_avgb[rpl].mul_(0).add_(com_sets.rstfact*(com_sets.lr_init+lr_avgb[rpl]))
-          lr_avga[rpl].mul_(0).add_(com_sets.rstfact*(com_sets.lr_init+lr_avga[rpl]))
-  
-      # linear correlation estimate update  
-      # (double averaging [lowpass]), 
-      # Note: future work: how to estimate this more accurately?
-      if rpl == 0:
-        lrat, lr_avgb[rpl], lr_avga[rpl] = com_sets.lpf.compute_dbl(in_k=ewg_t, x1=lr_avgb[rpl], x2=lr_avga[rpl], beta1=beta_a, beta2=beta_e, step=step)
-      else:
-        # lrat, lr_avgb[rpl], lr_avga[rpl] = com_sets.lpf.compute_dbl(in_k=ewg_t, x1=lr_avgb[rpl], x2=lr_avga[rpl], beta1=beta_a, beta2=beta_e, step=step)
-        lrat, lr_avgb[rpl] = com_sets.lpf.compute(in_k=ewg_t, x=lr_avgb[rpl], beta=beta_e, step=step, mode=3)                    
-      
-      # abs. val projection. to ensure positive rates.
-      alpha_hat_t = (lrat.abs_())
-  else:
-      # auto_mode==2
-      # use externally supplied (typically small) linear correlation estimate 
-      alpha_hat_t = lr_init   
-      
-  return alpha_hat_t, lr_avga, lr_avgb   
-                  
-                  
-# LPF
+# LPF0
 class LPF():
     """ Generic Digital First-order Low Pass Filter Structure 
         
@@ -236,6 +102,13 @@ class LPF():
                 # forward:
                 (x.mul_(betak)).add_(in_k)
                 out_k = x*(one_minus_betak/one_minus_betak_pow_k)     
+
+            elif mode == 6: # exponential. (stable if 0 \le \beta < 1) 
+
+                # forward:
+                (x.mul_(betak)).add_(in_k)
+                out_k = x*(one_minus_betak)  
+
                 
             elif mode == 3: # exponential. (stable if 0 \le \beta < 1) k \to infty
                 # forward:
@@ -282,6 +155,17 @@ class LPF():
                 elif sq:
                     torch._foreach_addcmul_(x, in_k, in_k)
                 out_k = torch._foreach_div(torch._foreach_mul(x, one_minus_betak),one_minus_betak_pow_k)      
+
+            elif mode == 6: # exponential. (stable if 0 \le \beta < 1) 
+                # (x.mul_(betak)).add_(in_k)
+                # out_k = x*(one_minus_betak)  
+                # forward:
+                torch._foreach_mul_(x, betak)
+                if not sq:
+                    torch._foreach_add_(x, in_k)
+                elif sq:
+                    torch._foreach_addcmul_(x, in_k, in_k)
+                out_k = torch._foreach_mul(x, one_minus_betak)  
                                
             elif mode == 3: # exponential. (stable if 0 \le \beta < 1) k \to infty
                 # (x.mul_(betak)).add_(one_minus_betak*in_k)
@@ -488,18 +372,71 @@ class LPF():
         '''
         return out_k, x1, x2
 
+    @torch.no_grad()
+    def kf_compute(self, in_t:Tensor, var_in_t:Tensor, x_t:Tensor, var_x_t:Tensor, step:Tensor, beta_init:Tensor):
+        '''
+        kf_compute _summary_
+
+        kalman-filter LPF
+
+        Args:
+            in_t (Tensor): _description_
+            var_in_t (Tensor): _description_
+            x_t (Tensor): _description_
+            var_x_t (Tensor): _description_
+            step (Tensor): _description_
+            beta_init (Tensor): _description_
+
+        Returns:
+            _type_: _description_
+        '''
+        
+        if not self.abnormal:
+            if step == 1:
+                var_x_t.mul_(0).add_((1-beta_init)*var_in_t)
+            
+            var_vt = (var_in_t - var_x_t).abs_()
+            alph_t = var_x_t/(var_x_t + var_vt)
+            beta_t = 1 - alph_t
+            # forward:
+            x_t.mul_(beta_t).add_(alph_t*in_t)
+            var_x_t.mul_(beta_t)
+            # out.
+            unden = (1-beta_t.pow(step))
+            out_t = 1*x_t/(unden)
+            var_out_t = 1*var_x_t/(unden.square())
+        else:
+            
+            if step == 1:
+                torch._foreach_mul_(var_x_t, 0)
+                torch._foreach_add_(var_x_t, torch._foreach_mul(var_in_t,(1-beta_init)))            
+            
+            var_vt = torch._foreach_abs(torch._foreach_sub(var_in_t,var_x_t))
+            alph_t = torch._foreach_div(var_x_t, torch._foreach_add(var_x_t,var_vt))
+            beta_t = torch._foreach_add(torch._foreach_neg(alph_t),1)
+           
+            torch._foreach_mul_(x_t, beta_t)
+            torch._foreach_add_(x_t, torch._foreach_mul(in_t, alph_t))      
+            torch._foreach_mul_(var_x_t, beta_t)
+            
+            unden = [1-bpt.pow(step) for bpt in beta_t]
+            out_t = torch._foreach_div(x_t,unden)
+            var_out_t = torch._foreach_div(var_x_t,torch._foreach_mul(unden,unden))
+            
+        return out_t, x_t, var_out_t, var_x_t
+    
+    
 class common_sets():
     """ Commons 
     """
     
-    def __init__(self, lpf:LPF, auto_mode,p, 
+    def __init__(self, lpf:LPF,norm_all:bool,p, 
                 lr_init, epfreq, betas, beta_o, beta_d, 
                 eps, spe, wd_cte, 
                 autolr:bool, restarts:bool, maximize:bool, join_wdec:bool, lrlogstep:bool, down:bool) -> None:
         self.down = down
         self.lrlogstep = lrlogstep
         self.lpf = lpf
-        self.auto_mode = auto_mode
         self.p = p
         self.beta_i = betas[0]
         self.beta_e = betas[1] 
@@ -517,37 +454,347 @@ class common_sets():
         self.est_numels = 0
         self.rstfact = 2
         self.epfreq = epfreq
-        self.levelnorm = True
+        self.levelnorm = norm_all
         
     @torch.no_grad()
     def grp_devdt(self, device, dtype):
         fzero = torch.tensor(0., dtype=dtype, device=device)
         fone = torch.tensor(1., dtype=dtype, device=device)
-        lr_init = self.lr_init*fone
-        beta_i = self.beta_i*fone
-        beta_e = self.beta_e*fone
-        beta_a = self.beta_a*fone
-        beta_o = self.beta_o*fone
-        beta_d = self.beta_d*fone
-        eps = self.eps*fone
-        wd_cte = self.wd_cte*fone
-        auto_mode = self.auto_mode 
-        levels = self.p
-        
-        return lr_init, beta_i, beta_e, beta_a, beta_o, beta_d, eps, wd_cte, fzero, fone, auto_mode, levels        
+        self.dev_lr_init = self.lr_init*fone
+        self.dev_beta_i = self.beta_i*fone
+        self.dev_beta_e = self.beta_e*fone
+        self.dev_beta_a = self.beta_a*fone
+        self.dev_beta_o = self.beta_o*fone
+        self.dev_beta_d = self.beta_d*fone
+        self.dev_eps = self.eps*fone
+        self.dev_wd_cte = self.wd_cte*fone
+        self.levels = self.p       
     
     @torch.no_grad()
-    def log_stats(self):        
+    def log_stats(self, params=None):      
+        
+        if params is not None:
+            self.est_numels = sum(p.numel() for p in params)  
         # logging.
         txt = "="
         infostr = "AutoSGM info:\t"          
-        strlog = f"{infostr} [total params, d={self.est_numels}]\n[autolr={self.autolr}, levels={self.p}, star-est={self.down}, init_lr={self.lr_init:.5g} |\n lpf [i,e,o] : {self.beta_i:.4g}, {self.beta_e:.4g}, {self.beta_o:.4g} | tdiff. : {self.beta_d:.4g} |\n eps : {self.eps:.4g} | weight-decay: {self.wd_cte:.4g}]"
+        strlog = f"{infostr} [total params, d={self.est_numels}], restarts={self.restarts}\n[autolr={self.autolr}, levels={self.p}, init_lr={self.lr_init:.5g} |\n lpf. [i,e,o] : {self.beta_i:.4g}, {self.beta_e:.4g}, {self.beta_o:.4g} | hpf. : {self.beta_d:.4g} |\n eps : {self.eps:.4g} | weight-decay: {self.wd_cte:.4g}]"
         # debug  
         print(f"{txt * int(0.35*len(strlog)) }")
         print(strlog) #      
         print(f"{txt * int(0.35*len(strlog)) }\n")
             
 
+    # Smooth HPF
+    def smooth_td(self, curr:Tensor, past:Tensor):
+        """ Smooth First-order Digital Differentiator
+        
+        A smooth digital high-pass filter for time-differentiation
+        
+        Args:
+            beta_d (>= 0)
+            
+            curr current input
+            
+            past past input
+        """
+        
+        return (curr-past).mul_(curr+past).mul_(0.5*self.beta_d)  
+
+    # Trace Gradient Inputs
+    def grader(self, step, pl, grad_lev, grad_smth_lev, grad_var_lev, gradsmth_levm1_old, param_lev):
+        
+        if not self.lpf.abnormal:
+            # get gradient for this level
+            if pl != 0:
+                grad_lev[pl].mul_(0).add_(gradsmth_levm1_old.mul(grad_lev[pl-1]))
+            g_t = 1*grad_lev[pl]  
+            
+            # add weight decay directly or not
+            if pl == 0:  
+                g_t = self.lpf.patch(g_t,beta=self.dev_beta_o,step=step) 
+                if self.dev_wd_cte is not None: 
+                    if self.join_wdec:
+                        # decay weight directly
+                        param_lev[pl].mul_(1-self.dev_wd_cte)
+                    else:
+                        # decay weight as l2-regularized gradient
+                        g_t.addcmul_(param_lev[pl],self.dev_wd_cte)
+                
+            # flip sign, if maximizing.   
+            if self.down or self.maximize: 
+                g_t.neg_()
+                            
+            # smooth gradient input [lowpass]
+            if pl == 0:  
+                m_t_min_1 = self.lpf.previous(xkm1=grad_smth_lev[pl], beta=self.dev_beta_i, step=step)
+                m_t, grad_smth_lev[pl] = self.lpf.compute(in_k=g_t, x=grad_smth_lev[pl], beta=self.dev_beta_i, step=step)
+            else:
+                m_t_min_1 = 1*grad_smth_lev[pl]
+                grad_smth_lev[pl].mul_(0).add_(g_t)
+                m_t = 1*g_t
+
+            # add [add average time-diff] to graidient 
+            if self.dev_beta_d > 0:
+                if step == 1: v_diff = 0
+                else: v_diff = self.smooth_td(m_t, m_t_min_1)
+                g_t.add_(v_diff)
+                m_t.add_(v_diff)
+                
+            # denominator of the optimal step_size
+            # in: averaging [lowpass] ~ approx. input variance   
+            if pl == self.levels-1 or self.levelnorm:
+                # normalize all levels or normalize last level only  
+                if step > 1:
+                    v_var_t_min_1 = self.lpf.previous(xkm1=grad_var_lev[pl], beta=self.dev_beta_i, step=step)
+                    m_t_min_1.div_((v_var_t_min_1.sqrt()).add_(self.dev_eps))
+
+                v_var_t, grad_var_lev[pl] = self.lpf.compute(in_k=(g_t*g_t.conj()), x=grad_var_lev[pl], beta=self.dev_beta_e, step=step)
+                
+                # if pl == 0:
+                #     # var of smooth grad.
+                #     obt_mdp = (1-self.dev_beta_i)/(1+self.dev_beta_i)
+                #     bti_t = self.dev_beta_i.pow(step)
+                #     obt_pdm_t = (1+bti_t)/(1-bti_t)
+                #     v_var_t.mul_(obt_mdp*obt_pdm_t)
+                
+                # normalized input
+                # malt_t = m_t.div((v_var_t.add(eps)).sqrt_())
+                (m_t).div_((v_var_t.sqrt()).add_(self.dev_eps))    
+        
+        elif self.lpf.abnormal: # operating on lists
+            # get gradient for this level from all layers
+            gpl = [ allist[pl] for allist in grad_lev]
+            gsmthpl = [ allist[pl] for allist in grad_smth_lev]
+            gvarpl = [ allist[pl] for allist in grad_var_lev]
+            parampl = [ allist[pl] for allist in param_lev]
+            if pl != 0:
+                gpl_m1 = [ allist[pl-1] for allist in grad_lev]
+                torch._foreach_mul_(gpl,0)
+                torch._foreach_add_(gpl, torch._foreach_mul(gpl_m1,gradsmth_levm1_old))
+            g_t = torch._foreach_mul(gpl,1)
+            
+            # add weight decay directly or not
+            if pl == 0:  
+                g_t = self.lpf.patch(g_t,beta=self.dev_beta_o,step=step,mode=3) 
+                if self.dev_wd_cte is not None: 
+                    if self.join_wdec:
+                        # decay weight directly
+                        torch._foreach_mul_(parampl,1-self.dev_wd_cte)
+                    else:
+                        # decay weight as l2-regularized gradient
+                        torch._foreach_add_(g_t, torch._foreach_mul(parampl,self.dev_wd_cte))
+                
+            # flip sign, if maximizing.   
+            if self.down or self.maximize: 
+                torch._foreach_neg_(g_t)
+                            
+            # smooth gradient input [lowpass]
+            if pl == 0:  
+                m_t_min_1 = self.lpf.previous(xkm1=gsmthpl, beta=self.dev_beta_i, step=step)
+                m_t, gsmthpl = self.lpf.compute(in_k=g_t, x=gsmthpl, beta=self.dev_beta_i, step=step)
+            else:
+                m_t_min_1 = torch._foreach_mul(gsmthpl,1)
+                torch._foreach_mul_(gsmthpl,0)
+                torch._foreach_add_(gsmthpl,g_t)
+                m_t = torch._foreach_mul(g_t,1)
+
+            # add [add average time-diff] to graidient 
+            if self.dev_beta_d > 0:
+                if step == 1: v_diff = 0
+                else:             
+                    v_diff = [self.smooth_td(mti, mti_mone) 
+                        for mti, mti_mone in zip(m_t, m_t_min_1)
+                    ]   
+                torch._foreach_add_(g_t, v_diff) 
+                torch._foreach_add_(m_t, v_diff)
+                
+            # denominator of the optimal step_size
+            # in: averaging [lowpass] ~ approx. input variance   
+            if pl == self.levels-1 or self.levelnorm:
+                # normalize all levels or normalize last level only  
+                if step > 1:
+                    v_var_t_min_1 = self.lpf.previous(xkm1=gvarpl, beta=self.dev_beta_e, step=step)
+                    torch._foreach_div_(m_t_min_1, torch._foreach_add(torch._foreach_sqrt(v_var_t_min_1), self.dev_eps))
+
+                v_var_t, gvarpl = self.lpf.compute(in_k=g_t, x=gvarpl, beta=self.dev_beta_e, step=step, sq=True)
+                
+                # normalized input           
+                # malt_t = torch._foreach_div(m_t, torch._foreach_sqrt(torch._foreach_add(v_var_t,eps)))
+                torch._foreach_div_(m_t, torch._foreach_add(torch._foreach_sqrt(v_var_t), self.dev_eps)) 
+                      
+        return g_t, m_t, m_t_min_1    
+                
+    # Integrator
+    def integrator(self, w_t, m_t, rpl, alpha_hat_t):
+        if not self.lpf.abnormal:
+            if rpl == 0:
+                if self.down:
+                    w_t[rpl].addcmul_(m_t[rpl], alpha_hat_t)
+                else:
+                    w_t[rpl].addcmul_(m_t[rpl], alpha_hat_t, value=-1)
+            else:
+                if self.down:
+                    w_t[rpl].addcmul_(m_t[rpl], alpha_hat_t, value=1)
+                else:
+                    w_t[rpl].addcmul_(m_t[rpl], alpha_hat_t)
+        elif self.lpf.abnormal:
+            wrpl = [ allist[rpl] for allist in w_t]
+            if rpl== 0:
+                if self.autolr:
+                    if self.down:
+                        torch._foreach_addcmul_(wrpl, m_t[rpl], alpha_hat_t, value=1)    
+                    else:
+                        torch._foreach_addcmul_(wrpl, m_t[rpl], alpha_hat_t, value=-1)          
+                else:
+                    if self.down:
+                        torch._foreach_mul_(m_t[rpl], alpha_hat_t)
+                        torch._foreach_add_(wrpl, m_t[rpl])
+                    else:
+                        torch._foreach_mul_(m_t[rpl], -alpha_hat_t)
+                        torch._foreach_add_(wrpl, m_t[rpl])
+            else:
+                if self.down:
+                    torch._foreach_addcmul_(wrpl, m_t[rpl], alpha_hat_t, value=1)    
+                else:
+                    torch._foreach_addcmul_(wrpl, m_t[rpl], alpha_hat_t, value=1)                  
+
+    # Smooth output
+    def smooth_out(self, step, rpl, param, w_t, w_smth):
+        if rpl == 0:
+            if not self.lpf.abnormal:
+                # optional smooth out. [lowpass]
+                if self.dev_beta_o > 0:
+                    w_est, w_smth[rpl] = self.lpf.compute(in_k=w_t[rpl], x=w_smth[rpl], beta=self.dev_beta_o, step=step, mode=3)
+                    
+                    param.mul_(0).add_(w_est)  
+                else:
+                    param.mul_(0).add_(w_t[rpl])
+                # end for
+            else: 
+                wrpl = [ allist[rpl] for allist in w_t]          
+                if self.beta_o > 0: 
+                    wsmthrpl = [ allist[rpl] for allist in w_smth]
+                    # smooth
+                    w_est, wsmthrpl = self.lpf.compute(in_k=wrpl, x=wsmthrpl, beta=self.dev_beta_o, step=step, mode=3)
+                    # pass on
+                    torch._foreach_zero_(param)
+                    torch._foreach_add_(param, w_est)
+                else:                    
+                    torch._foreach_zero_(param)
+                    torch._foreach_add_(param, wrpl)
+                    
+                
+      
+    # Compute Proportional Gain
+    def lr_compute(self, step, rpl, 
+                m_t, w_t, lr_avga, lr_avgb):
+        
+        # com_sets.autolr = False
+        # computes numerator of the bayes-optimal step_size
+        # computes approx. linear correlation funcion         
+        # learning rate estimation
+        if self.autolr:
+            
+            if not self.lpf.abnormal:
+            
+                # surrogate approx. without w^\star 
+                ewg_t = m_t[rpl].mul(w_t[rpl])
+                                
+                # restart logic: idea is that, after the first k epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs, with an averagely constant learning-rate for each parameter.
+                # cyclic step
+                step_c = (((step-1) % (self.spe*self.epfreq)) + 1)
+                # restart lowpass state at the end of every 'k' epoch.
+                if self.restarts and step_c == 1 and step > 1:
+                    reval = self.rstfact*(self.lr_init+lr_avgb[rpl])
+                    lr_avgb[rpl].mul_(0).add_(reval)
+                    reval = self.rstfact*(self.lr_init+lr_avga[rpl])
+                    lr_avga[rpl].mul_(0).add_(reval)
+            
+                # linear cov. or correlation estimate update  
+                # Note: future work: how to estimate this more accurately?
+                if rpl == 0: 
+                    # (double averaging [lowpass]), 
+                    # lrat, lr_avgb[rpl], lr_avga[rpl] = self.lpf.compute_dbl(in_k=ewg_t, x1=lr_avgb[rpl], x2=lr_avga[rpl], beta1=self.dev_beta_a, beta2=self.dev_beta_e, step=step)
+                    lrat, lr_avgb[rpl] = self.lpf.compute(in_k=ewg_t, x=lr_avgb[rpl], beta=self.dev_beta_e, step=step, mode=3)  
+                    # abs. val projection. to ensure positive rates.
+                    alpha_hat_t = (lrat.abs())
+                else:
+                    lrat, lr_avgb[rpl] = self.lpf.compute(in_k=ewg_t, x=lr_avgb[rpl], beta=self.dev_beta_e, step=step, mode=3)   
+                    # abs. val projection. to ensure positive rates.
+                    alpha_hat_t = (lrat.abs())
+                    # alpha_hat_t = (lrat.relu().add(eps))                 
+
+            elif self.lpf.abnormal:
+                wrpl = [ allist[rpl] for allist in w_t]
+                lrbrpl = [ allist[rpl] for allist in lr_avgb]
+                lrarpl = [ allist[rpl] for allist in lr_avga]    
+                
+                # surrogate approx. without w^\star 
+                ewg_t = torch._foreach_mul(m_t[rpl],wrpl)            
+                # restart logic: idea is that, after the first k epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs, with an averagely constant learning-rate for each parameter.
+                # cyclic step
+                step_c = (((step-1) % (self.spe*self.epfreq)) + 1)
+                # restart lowpass state at the end of every 'k' epoch.
+                if self.restarts and step_c == 1 and step > 1:
+
+                    
+                    reval = torch._foreach_mul(torch._foreach_add(lrbrpl, self.lr_init), self.rstfact)
+                    torch._foreach_mul_(lrbrpl,0)
+                    torch._foreach_add_(lrbrpl,reval)
+                    
+                    reval = torch._foreach_mul(torch._foreach_add(lrarpl, self.lr_init), self.rstfact)
+                    torch._foreach_mul_(lrarpl,0)
+                    torch._foreach_add_(lrarpl, reval)
+            
+                # linear cov. or correlation estimate update  
+                # Note: future work: how to estimate this more accurately?
+                if rpl == 0: 
+                    # (double averaging [lowpass]), 
+                    lrat, lrbrpl, lrarpl = self.lpf.compute_dbl(in_k=ewg_t, x1=lrbrpl, x2=lrarpl, beta1=self.dev_beta_a, beta2=self.dev_beta_e, step=step)
+                    
+                    # abs. val projection. to ensure positive rates.
+                    alpha_hat_t = torch._foreach_abs(lrat)
+                else:
+                    lrat, lrbrpl = self.lpf.compute(in_k=ewg_t, x=lrbrpl, beta=self.dev_beta_e, step=step, mode=3)    
+                               
+                    # abs. val projection. to ensure positive rates.
+                    alpha_hat_t = torch._foreach_abs(lrat)
+                
+        else:
+            # use a externally supplied (typically small) linear correlation estimate or value
+            alpha_hat_t = self.dev_lr_init   
+            
+        return alpha_hat_t   
+    
+    # Log LR or SS                    
+    def logginglr(self, rpl, lrm, lrsq, alpha_hat_t):
+        if rpl == self.p-1:
+            if not self.lpf.abnormal:
+                if self.autolr and self.lrlogstep:
+                    # we want to do this per step
+                    lrm[rpl].mul_(0).add_(alpha_hat_t)
+                elif self.autolr and not self.lrlogstep:
+                    # to save time and memory,
+                    # we want to do this per epoch
+                    # but get the average over all steps in that epoch. 
+                    lrm[rpl].add_(alpha_hat_t)
+                    lrsq[rpl].add_(alpha_hat_t.square())
+            elif self.lpf.abnormal:            
+                if self.autolr and self.lrlogstep:
+                    lrmrpl = [ allist[rpl] for allist in lrm]
+                    # we want to do this per step
+                    torch._foreach_zero_(lrmrpl)
+                    torch._foreach_add_(lrmrpl, alpha_hat_t)
+                elif self.autolr and not self.lrlogstep:
+                    lrmrpl = [ allist[rpl] for allist in lrm]
+                    lrsqrpl = [ allist[rpl] for allist in lrsq] 
+                    # to save time and memory,
+                    # we want to do this per epoch
+                    # but get the average over all steps in that epoch. 
+                    torch._foreach_add_(lrmrpl, alpha_hat_t)
+                    torch._foreach_add_(lrsqrpl, torch._foreach_mul(alpha_hat_t,alpha_hat_t))
+            
 # PyTorch Backend   
 class AutoSGM(Optimizer):
     '''
@@ -610,13 +857,13 @@ class AutoSGM(Optimizer):
     """
     '''
     
-    def __init__(self, params, *, lr_init=1e-3, spe=1, epfreq=1,
+    def __init__(self, params, *, lr_init=1e-3, spe=1, epfreq=10,
                 beta_i=0.9, beta_e=0.999, beta_a=0.99999,
                 eps=1e-8, weight_decay=0,
                 beta_o=0, beta_d=0,
-                auto_mode=0, # 0: corr lr, 1: 1993 ss, 2: const lr. 
                 levels=1,
-                autolr:bool=True, restarts:bool=True,
+                norm_all=True, 
+                autolr:bool=True, restarts:bool=False,
                 join_wdec:bool=False, down:bool=False,
                 maximize:bool=False, lrlogstep:bool=True, 
                 foreach: Optional[bool]=None,
@@ -646,11 +893,12 @@ class AutoSGM(Optimizer):
         
         # init. recursive first-order lowpass filter obj.
         self.lpf = LPF(foreach=foreach, fused=fused)
+        self.nodes = levels
         
         defaults = dict(p=levels,lr_init=lr_init,betas=(beta_i,beta_e,beta_a),
                         beta_o=beta_o,
                         beta_d=beta_d, 
-                        spe=spe, auto_mode=auto_mode,
+                        spe=spe, norm_all=norm_all,
                         eps=eps, weight_decay=weight_decay, epfreq=epfreq,
                         restarts=restarts,
                         maximize=maximize, autolr=autolr, join_wdec=join_wdec,lrlogstep=lrlogstep, down=down,
@@ -731,7 +979,7 @@ class AutoSGM(Optimizer):
         
         if 'com_sets' not in group or group['com_sets'] is None:
             group['com_sets'] = common_sets(
-                self.lpf,group['auto_mode'],group['p'],group['lr_init'], 
+                self.lpf,group['norm_all'],group['p'],group['lr_init'], 
                 group['epfreq'],
                 group['betas'], group['beta_o'], group['beta_d'],
                 group['eps'], group['spe'], group['weight_decay'],
@@ -773,31 +1021,32 @@ class AutoSGM(Optimizer):
                     # if not state['levels'][f'{lev}']: # if level does not exist
                     # -  for all levels
                     state['levels'][f'{lev}']['grad_smth'] = torch.zeros_like(
-                            p, memory_format=torch.preserve_format, device=p.device) 
+                            p.real, memory_format=torch.preserve_format, device=p.device) 
                     if lev == 1:
                       state['levels'][f'{lev}']['grads'] = None
-                      state['levels'][f'{lev}']['weight'] = p.clone(memory_format=torch.preserve_format).detach()   
-                      state['levels'][f'{lev}']['weight_smth'] = p.clone(memory_format=torch.preserve_format).detach() 
-                      state['levels'][f'{lev}']['grad_var'] = torch.zeros_like(p, memory_format=torch.preserve_format, device=p.device)   
+                      state['levels'][f'{lev}']['weight'] = p.real.clone(memory_format=torch.preserve_format).detach()   
+                      state['levels'][f'{lev}']['weight_smth'] = p.real.clone(memory_format=torch.preserve_format).detach() 
+                      state['levels'][f'{lev}']['grad_var'] = torch.zeros_like(p.real, memory_format=torch.preserve_format, device=p.device)   
                     else:
                       state['levels'][f'{lev}']['grads']= torch.zeros_like(
                             p, memory_format=torch.preserve_format, device=p.device)
-                      state['levels'][f'{lev}']['weight'] = group['lr_init']*torch.ones_like(p, memory_format=torch.preserve_format, device=p.device)     
-                      state['levels'][f'{lev}']['weight_smth'] = group['lr_init']*torch.ones_like(p, memory_format=torch.preserve_format, device=p.device)    
-                      state['levels'][f'{lev}']['grad_var'] = torch.zeros_like(p, memory_format=torch.preserve_format, device=p.device)   
+                      state['levels'][f'{lev}']['weight'] = group['lr_init']*torch.ones_like(p.real, memory_format=torch.preserve_format, device=p.device)     
+                      state['levels'][f'{lev}']['weight_smth'] = group['lr_init']*torch.ones_like(p.real, memory_format=torch.preserve_format, device=p.device)    
+                      state['levels'][f'{lev}']['grad_var'] = torch.zeros_like(p.real, memory_format=torch.preserve_format, device=p.device)   
+                      
                     # - only for the last level.                
                     if lev == group['p']:
-                      state['levels'][f'{lev}']["lr_avgb"] = group['lr_init']*torch.ones_like(p, memory_format=torch.preserve_format, device=p.device)    
-                      state['levels'][f'{lev}']["lr_avga"] = group['lr_init']*torch.ones_like(p, memory_format=torch.preserve_format, device=p.device)    
+                      state['levels'][f'{lev}']["lr_avgb"] = group['lr_init']*torch.ones_like(p.real, memory_format=torch.preserve_format, device=p.device)    
+                      state['levels'][f'{lev}']["lr_avga"] = group['lr_init']*torch.ones_like(p.real, memory_format=torch.preserve_format, device=p.device)    
                     else:
                       state['levels'][f'{lev}']["lr_avgb"] = None   
                       state['levels'][f'{lev}']["lr_avga"] = None
                       
                     # - for all levels (stores, mean and second moment for states.)              
                     state['levels'][f'{lev}']["lr_m_save"] = torch.zeros_like(
-                            p, memory_format=torch.preserve_format, device=p.device)
+                            p.real, memory_format=torch.preserve_format, device=p.device)
                     state['levels'][f'{lev}']["lr_sq_save"] = torch.zeros_like(
-                            p, memory_format=torch.preserve_format, device=p.device) 
+                            p.real, memory_format=torch.preserve_format, device=p.device) 
                 
                 state['step'] += 1
                 steps.append(state['step'])
@@ -946,7 +1195,6 @@ def sgm(com_sets:common_sets, steps:List[Tensor], params: List[Tensor],
         grad_scale=grad_scale,
         found_inf=found_inf)
     
-
 def _single_tensor_sgm(com_sets:common_sets, 
         steps: List[Tensor], params: List[Tensor], 
         weight_list: List[List[Tensor]], 
@@ -969,14 +1217,11 @@ def _single_tensor_sgm(com_sets:common_sets,
     dtype = params[0].dtype
     device= params[0].device
     
-    lr_init, beta_i, beta_e, beta_a, \
-    beta_o, beta_d, eps, \
-    wdecay, fzero, fone, auto_mode, levels = com_sets.grp_devdt(device,dtype)
+    com_sets.grp_devdt(device,dtype)
+    levels = com_sets.p
         
     # LOG.
-    if steps[0] == 1: 
-        com_sets.est_numels = sum(p.numel() for p in params)
-        com_sets.log_stats()    
+    if steps[0] == 1: com_sets.log_stats(params)    
                 
     for i, param in enumerate(params):
         step = steps[i]
@@ -994,322 +1239,160 @@ def _single_tensor_sgm(com_sets:common_sets,
         # handle if complex parameters
         if torch.is_complex(param):
             param = torch.view_as_real(param)
-            #
-            for pl in range(levels):
-              w_t.append(torch.view_as_real(weight_list[i][pl]))
-              w_smth.append(torch.view_as_real(weight_smth_list[i][pl]))
-              grad.append(torch.view_as_real(grad_list[i][pl]))
-              grad_smth.append(torch.view_as_real(grad_smth_list[i][pl]))
-              if pl == levels-1: 
-                grad_var.append(torch.view_as_real(grad_var_list[i][pl]))
-                #
-                lr_avgb.append(torch.view_as_real(lr_avgb_list[i][pl]))
-                lr_avga_list.append(torch.view_as_real(lr_avga_list[i][pl]))
-                #
-                lrm.append(torch.view_as_real(lrm_save_list[i][pl]))
-                lrsq.append(torch.view_as_real(lrsq_save_list[i][pl]))          
+            # for pl in range(levels):
+            #   w_t[pl] = (torch.view_as_real(weight_list[i][pl]))
+            #   w_smth[pl] = (torch.view_as_real(weight_smth_list[i][pl]))
+            #   grad[pl] = (torch.view_as_real(grad_list[i][pl]))
+            #   grad_smth[pl] = (torch.view_as_real(grad_smth_list[i][pl]))
+            #   if (pl == levels-1) or com_sets.down: 
+            #     grad_var[pl] = (torch.view_as_real(grad_var_list[i][pl]))
+            #     #
+            #     lr_avgb[pl] = (torch.view_as_real(lr_avgb_list[i][pl]))
+            #     lr_avga[pl] = (torch.view_as_real(lr_avga_list[i][pl]))
+            #     #
+            #     lrm[pl] = (torch.view_as_real(lrm_save_list[i][pl]))
+            #     lrsq[pl] = (torch.view_as_real(lrsq_save_list[i][pl]))          
         
         
         # - TRACE gradients
-        g_t = []
-        m_t = []
+        g_t, m_t = [], []
         oldsmthval = 0
         for pl in range(levels):
-          theval, smthval, oldsmthval = grad_build(com_sets, device, dtype, step, pl, grad, grad_smth, grad_var, oldsmthval, w_t)
+          theval, smthval, oldsmthval = com_sets.grader(step, pl, grad, grad_smth, grad_var, oldsmthval, w_t)
           g_t.append(theval)
           m_t.append(smthval)            
-          # end trace
-        # end for
+        # end trace
+         
+        # # - TRACE gradients
+        # g_t, m_t = [], []
+        # oldsmthval = 0
+        # for pl in range(levels):
+        #   theval, smthval, oldsmthval = com_sets.grader(step, pl, grad, grad_smth, grad_var, grad_smth_var, oldsmthval, w_t)
+        #   g_t.append(theval)
+        #   m_t.append(smthval)            
+        # # end trace
         
+                
         # - AutoSGM Flow
         for rpl in range(levels-1, -1, -1):
           # compute step-size or lr.
           if rpl == levels-1:
             # compute lr, at last level
-            alpha_hat_t,lr_avga, lr_avgb = lr_compute(com_sets, device, dtype,step, rpl, g_t, m_t, w_t, grad_var, lr_avga, lr_avgb)        
+            alpha_hat_t = com_sets.lr_compute(step, rpl, m_t, w_t, lr_avga, lr_avgb)        
           else:
             # assign step_size
-            # restarts:
-            # push close to zero, if a negative element occurs.
-            alpha_hat_t = w_t[rpl+1].relu().add(eps)
+            alpha_hat_t = w_t[rpl+1].relu().add(com_sets.dev_eps) 
             
           # integrate: state update
-          integrator(com_sets, w_t, m_t, rpl, alpha_hat_t)            
+          com_sets.integrator(w_t, m_t, rpl, alpha_hat_t)            
+          # pass output: 
+          # updated weight values back to the neural network's placeholder.
+          com_sets.smooth_out(step, rpl, param, w_t, w_smth)           
             
-          # optional smooth out. [lowpass]
-          if beta_o > 0:
-            w_est, w_smth[rpl] = com_sets.lpf.compute(in_k=w_t[rpl], x=w_smth[rpl], beta=beta_o, step=step, mode=3)
-          else:
-            w_est = 1*w_t[rpl]
-            
-          # pass estimated/updated weight values back to the neural network's placeholder.
-          if rpl == 0:
-            param.mul_(0).add_(w_est)
-        
-          # log lr
-          if rpl == levels-1:
-            if com_sets.autolr and com_sets.lrlogstep:
-                # we want to do this per step
-                lrm[rpl].mul_(0).add_(alpha_hat_t)
-            elif com_sets.autolr and not com_sets.lrlogstep:
-                # to save time and memory,
-                # we want to do this per epoch
-                # but get the average over all steps in that epoch. 
-                lrm[rpl].add_(alpha_hat_t)
-                lrsq[rpl].add_(alpha_hat_t.square())
-        # end for
+          # logging lr
+          com_sets.logginglr(rpl, lrm, lrsq, alpha_hat_t)
 
-
-    
-
-def _multi_tensor_sgm(com_sets:common_sets, steps: List[Tensor], 
-        params: List[Tensor], 
-        weight_list: List[Tensor], weight_smth_list: List[Tensor], 
-        grad_list: List[Tensor], grad_smth_list: List[Optional[Tensor]],
-        grad_var_list: List[Optional[Tensor]],  
-        lr_avgb_list: List[Optional[Tensor]], lr_avga_list: List[Optional[Tensor]], lr_save_list: List[Optional[Tensor]],*,has_sparse_grad:bool,       
+def _multi_tensor_sgm(com_sets:common_sets, 
+        steps: List[Tensor], params: List[Tensor], 
+        weight_list: List[List[Tensor]], 
+        weight_smth_list: List[List[Optional[Tensor]]], 
+        grad_list: List[List[Tensor]], 
+        grad_smth_list: List[List[Optional[Tensor]]],
+        grad_var_list: List[List[Optional[Tensor]]],
+        lr_avgb_list: List[List[Optional[Tensor]]], 
+        lr_avga_list: List[List[Optional[Tensor]]], 
+        lrm_save_list: List[List[Tensor]],lrsq_save_list: List[List[Tensor]],*,has_sparse_grad:bool,       
         differentiable:Optional[bool],
         grad_scale:Optional[Tensor],
         found_inf:Optional[Tensor]):
     
-    if len(params) == 0:
-        return
+    if len(params) == 0: return
     
     assert grad_scale is None and found_inf is None
 
-    if steps[0] == 1: 
-        com_sets.est_numels = sum(p.numel() for p in params)
-        com_sets.log_stats()
+    if steps[0] == 1: com_sets.log_stats(params)
     
     grouped_tensors = _group_tensors_by_device_and_dtype(
-        [params, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, lr_avgb_list, lr_avga_list, lr_save_list, steps])
+        [params, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, lr_avgb_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps])
 
     for (device, dtype) in grouped_tensors:
         (
-            device_params, device_w, device_w_smth, 
-            device_grads,device_grads_smth, device_grads_var, 
-            device_lrb, device_lra, device_lr, device_steps
+            dev_params, dev_wt, dev_wt_smth, 
+            dev_grads,dev_grads_smth, dev_grads_var, 
+            dev_lrb, dev_lra, dev_lrm, dev_lrsq, dev_steps
         ) = grouped_tensors[(device, dtype)] 
 
-        lr_init, beta_i, \
-        beta_e, beta_a, \
-        beta_o, beta_d, \
-        eps, wdecay, fzero, fone, auto_mode =  com_sets.grp_devdt(device=device, dtype=dtype)
+        com_sets.grp_devdt(device,dtype)
+        levels =  com_sets.p
+        step_this = dev_steps[0]
         
-        step_this = device_steps[0]
-        
-        device_has_sparse_grad = any(grad.is_sparse for grad in device_grads)
+        # if step_this == 1: 
+        device_has_sparse_grad = any(grad.is_sparse 
+                                        for gradlist in dev_grads 
+                                        for grad in gradlist )
         
         # handle complex parameters
-        params_ = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_params]
-        device_w = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_w]
-        device_w_smth = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_w_smth]
-        #
-        device_grads = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_grads]
-        device_grads_smth = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_grads_smth]
-        device_grads_var = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_grads_var]    
-        #   
-        device_lrb = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_lrb]
-        device_lra = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_lra]
-        device_lr = [torch.view_as_real(x) if torch.is_complex(x) else x for x in device_lr]
+        params_ = [torch.view_as_real(x) 
+                if torch.is_complex(x) else x 
+                for x in dev_params]
+        # dev_wt = cmplx2real(dev_wt)
         
-        
-        # START
-        g_t = com_sets.lpf.patch(device_grads,beta=beta_o,step=step_this,mode=3) 
-        if com_sets.join_wdec: pass # decay weight directly
-        else:
-            # decay weight as l2-regularized gradient
-            torch._foreach_add_(g_t, torch._foreach_mul(device_w,wdecay))
-        
-        if com_sets.down: torch._foreach_neg_(g_t)    
-            
-        # flip sign, if maximizing.
-        if com_sets.maximize: torch._foreach_neg_(g_t)
+        # - TRACE gradients
+        g_t, m_t = [], []
+        oldsmthval = 0
+        for pl in range(levels):
+          theval, smthval, oldsmthval = com_sets.grader(step_this, pl, dev_grads, dev_grads_smth, dev_grads_var, oldsmthval, dev_wt)
+          g_t.append(theval)
+          m_t.append(smthval)            
+        # end trace
 
-        # smooth input [lowpass]
-        m_t_min_1 = com_sets.lpf.previous(xkm1=device_grads_smth, beta=beta_i, step=step_this)
-        
-        gradss_t_min_1 = torch._foreach_mul(m_t_min_1,g_t)
-        
-        m_t, device_grads_smth = com_sets.lpf.compute(in_k=g_t, x=device_grads_smth, beta=beta_i, step=step_this)
-        
-        # smooth input [add average time-diff] 
-        if step_this == 1: vdiff = 0
-        else:                 
-            vdiff = [
-                smooth_td(beta_d, mti, mti_mone) 
-                for mti, mti_mone in zip(m_t, m_t_min_1)
-            ]                     
-        # in: smooth gradient
-        torch._foreach_add_(g_t, vdiff) 
-        torch._foreach_add_(m_t, vdiff)
-        
-        if auto_mode in [0,2]:
-            # denominator of the bayes-optimal step_size
-            # in: averaging [lowpass] ~ approx. input variance
-            v_var_t, device_grads_var = com_sets.lpf.compute(in_k=g_t, x=device_grads_var, beta=beta_e, step=step_this, sq=True)
-            
-            # normalized input        
-            # malt_t = torch._foreach_div(m_t, torch._foreach_sqrt(torch._foreach_add(v_var_t,eps)))
-            torch._foreach_div_(m_t, torch._foreach_add(torch._foreach_sqrt(v_var_t), eps)) 
-
-
-        # learning rate estimation
-        if com_sets.autolr and auto_mode==0:
-            # computes numerator of the bayes-optimal step_size
-            # computes approx. linear correlation funcion 
-            
-            alpha_hat_t = []
-            com_sets.lpf.abnormal = False
-            # since we're doing in-place ops., we can't use the zip iterator!
-            for i in range(len(params_)):
-                # surrogate approx. for w^\star 
-                if com_sets.join_wdec:
-                    device_w[i].mul_(1-wdecay)
-                    ewg_t = 1*device_w[i]
-                else: 
-                    ewg_t = device_w[i].mul(1-wdecay) 
-                ewg_t.mul_(m_t[i])
-                
-                # restart logic: idea is that, after the first k epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs, with an averagely constant learning-rate for each parameter.
-                # cyclic step
-                step_c = (((step_this-1) % (com_sets.spe*com_sets.epfreq)) + 1)
-                # restart lowpass state at the end of every 'k' epoch.
-                if com_sets.restarts and step_c == 1 and step_this > 1:
-                    device_lrb[i].mul_(0).add_(com_sets.rstfact*(lr_init+device_lrb[i]))
-                    device_lra[i].mul_(0).add_(com_sets.rstfact*(lr_init+device_lra[i]))
-                
-                # linear correlation estimate update  
-                # (double averaging [lowpass]), 
-                # Note: future work: how to estimate this more accurately?
-                lra_t, device_lrb[i], device_lra[i] = com_sets.lpf.compute_dbl(in_k=ewg_t, x1=device_lrb[i], x2=device_lra[i], beta1=beta_a, beta2=beta_e, step=step_this)
-                # lra_t, device_lra[i] = com_sets.lpf.compute(in_k=ewg_t, x=device_lra[i], beta=beta_e, step=step_this, mode=3)
-  
-                # abs. val projection. to ensure positive rates.
-                alpha_hat_t.append(lra_t.abs_())
-                
-            com_sets.lpf.abnormal = True
-            
-            # log lr
-            if com_sets.lrlogstep:
-                # we want to do this per step
-                torch._foreach_zero_(device_lr)
-            # else:
-            # to save time and memory,
-            # we want to do this per epoch
-            # but get the average over all steps in that epoch. 
-            torch._foreach_add_(device_lr, alpha_hat_t)
-            
-        elif com_sets.autolr and auto_mode==1: # 1984 impl.
-            # no normalization is done here.
-            # lr_init 
-            
-            # computes numerator of the bayes-optimal step_size
-            # computes approx. linear correlation funcion 
-            
-            # denominator of the bayes-optimal step_size
-            # in: averaging [lowpass] ~ approx. input variance
-            v_var_t, device_grads_var = com_sets.lpf.compute(in_k=gradss_t_min_1, x=device_grads_var, beta=beta_e, step=step_this, sq=True)
-            
-            # normalized input        
-            # malt_t = torch._foreach_div(m_t, torch._foreach_sqrt(torch._foreach_add(v_var_t,eps)))
-            torch._foreach_div_(gradss_t_min_1, torch._foreach_add(torch._foreach_sqrt(v_var_t), eps)) 
-
-            alpha_hat_t = []
-            com_sets.lpf.abnormal = False
-            # since we're doing in-place ops., we can't use the zip iterator!
-            for i in range(len(params_)):
-                
-                # surrogate approx. for w^\star 
-
-                ewg_t = device_lra[i].mul(gradss_t_min_1[i]) 
-                
-                # restart logic: idea is that, after the first k epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs, with an averagely constant learning-rate for each parameter.
-                # cyclic step
-                step_c = (((step_this-1) % (com_sets.spe*com_sets.epfreq)) + 1)
-                # restart lowpass state at the end of every 'k' epoch.
-                if com_sets.restarts and step_c == 1 and step_this > 1:
-                    device_lrb[i].mul_(0).add_(com_sets.rstfact*(lr_init+device_lrb[i]))
-                    device_lra[i].mul_(0).add_(com_sets.rstfact*(lr_init+device_lra[i]))
-                
-                # linear correlation estimate update  
-                # (double averaging [lowpass]), 
-                # Note: future work: how to estimate this more accurately?
-                # lra_t, device_lrb[i], device_lra[i] = com_sets.lpf.compute_dbl(in_k=ewg_t, x1=device_lrb[i], x2=device_lra[i], beta1=beta_a, beta2=beta_e, step=step_this)
-                lra_t, device_lrb[i] = com_sets.lpf.compute(in_k=ewg_t, x=device_lrb[i], beta=beta_e, step=step_this, mode=3)
-  
-                # abs. val projection. to ensure positive rates.
-                device_lra[i].addcmul_(gradss_t_min_1[i], lra_t.abs())
-
-                # device_lrb[i].mul_(0).add_(lr_init)                
-                # device_lrb[i].mul_(0).add_(lr_init/10)                
-                # device_lrb[i].mul_(0).add_(device_lra[i])
-                # device_lra[i].addcmul_(gradss_t_min_1[i], device_lrb[i])
-                
-                # restarts:
-                # push close to zero, if a negative element occurs.
-                alpha_hat_t.append(device_lra[i].relu().add(eps))
-                
-            com_sets.lpf.abnormal = True
-            
-            # log lr
-            if com_sets.lrlogstep:
-                # we want to do this per step
-                torch._foreach_zero_(device_lr)
-            # else:
-            # to save time and memory,
-            # we want to do this per epoch
-            # but get the average over all steps in that epoch. 
-            torch._foreach_add_(device_lr, alpha_hat_t)
-
-        else:
-            # use externally supplied linear correlation estimate 
-            alpha_hat_t = lr_init
-        
-        # update
-        if not device_has_sparse_grad:
-            # integrate: state update
-            if com_sets.autolr:
-                if com_sets.down:
-                    torch._foreach_addcmul_(device_w, m_t, alpha_hat_t, value=1)    
-                else:
-                    torch._foreach_addcmul_(device_w, m_t, alpha_hat_t, value=-1)          
+        # - AutoSGM Flow
+        for rpl in range(levels-1, -1, -1):
+            # compute step-size or lr.
+            if rpl == levels-1:
+                # compute lr, at last level
+                alpha_hat_t = com_sets.lr_compute(step_this, rpl, m_t, dev_wt, dev_lra, dev_lrb)        
             else:
-                if com_sets.down:
-                    torch._foreach_mul_(m_t, alpha_hat_t)
-                    torch._foreach_add_(device_w, m_t)
-                else:
-                    torch._foreach_mul_(m_t, -alpha_hat_t)
-                    torch._foreach_add_(device_w, m_t)
+                # assign step_size
+                wrpl_p1 = [ allist[rpl+1] for allist in dev_wt]
+                alpha_hat_t = torch._foreach_add(torch._foreach_clamp_min(wrpl_p1,0), com_sets.dev_eps)  
             
-            # smooth out. [lowpass]
-            w_est, device_w_smth = com_sets.lpf.compute(in_k=device_w, x=device_w_smth, beta=beta_o, step=step_this, mode=3)
-                
-            # pass estimated/updated weight values back to the neural network's placeholder.
-            torch._foreach_zero_(params_)
-            torch._foreach_add_(params_, w_est)
-                
-        else:
-            # foreach APIs don't support sparse
-            # integrate: state update
-            for i in range(len(params_)):
-                if com_sets.down:
-                    device_w[i].addcmul_(m_t, alpha_hat_t, value=1)
-                else:
-                    device_w[i].addcmul_(m_t, alpha_hat_t, value=-1) 
-                
-                # smooth out. [lowpass]
-                w_est, device_w_smth[i] = com_sets.lpf.compute(in_k=device_w[i], x=device_w_smth[i], beta=beta_o, step=step_this, mode=3)
+            if not device_has_sparse_grad:
+                # integrate: state update
+                com_sets.integrator(dev_wt, m_t, rpl, alpha_hat_t)            
+                # pass output: 
+                # updated weight values back to the neural network's placeholder.
+                com_sets.smooth_out(step_this, rpl, params_, dev_wt, dev_wt_smth)           
                     
-                # pass estimated/updated weight values back to the neural network's placeholder.                
-                params_[i].mul_(0).add_(w_est)
+                # logging lr
+                com_sets.logginglr(rpl, dev_lrm, dev_lrsq, alpha_hat_t)
+                
+            elif device_has_sparse_grad:
+                com_sets.lpf.abnormal = False
+                for i in range(len(params_)):
+                    if com_sets.down:
+                        dev_wt[i][rpl].addcmul_(m_t[rpl], alpha_hat_t[rpl], value=1)
+                    else:
+                        dev_wt[i][rpl].addcmul_(m_t[rpl], alpha_hat_t[rpl], value=-1) 
+                    
+                    # smooth out. [lowpass]
+                    if com_sets.beta_o > 0:
+                        w_est, dev_wt_smth[i][rpl] = com_sets.lpf.compute(in_k=dev_wt[i][rpl], x=dev_wt_smth[i][rpl], beta=com_sets.dev_beta_o, step=step_this, mode=3)
+                        
+                        # pass estimated/updated weight values back to the neural network's placeholder.                
+                        params_[i][rpl].mul_(0).add_(w_est)
+                    else:
+                        params_[i][rpl].mul_(0).add_(dev_wt[i][rpl])
 
-
-def _fused_sgm(com_sets:common_sets, steps: List[Tensor], 
-        params: List[Tensor], weight_list: List[Tensor], weight_smth_list: List[Tensor], 
-        grad_list: List[Tensor], grad_smth_list: List[Optional[Tensor]],
-        grad_var_list: List[Optional[Tensor]],  
-        lr_avgb_list: List[Optional[Tensor]], lr_avga_list: List[Optional[Tensor]], lr_save_list: List[Optional[Tensor]],*,has_sparse_grad:bool,       
+def _fused_sgm(com_sets:common_sets, steps:List[Tensor], params: List[Tensor], 
+        weight_list: List[List[Tensor]], 
+        weight_smth_list: List[List[Optional[Tensor]]], 
+        grad_list: List[List[Tensor]], 
+        grad_smth_list: List[List[Optional[Tensor]]],
+        grad_var_list: List[List[Optional[Tensor]]],
+        lr_avgb_list: List[List[Optional[Tensor]]], 
+        lr_avga_list: List[List[Optional[Tensor]]], 
+        lrm_save_list: List[List[Tensor]],lrsq_save_list: List[List[Tensor]],*,has_sparse_grad:bool,       
         differentiable:Optional[bool],
         grad_scale:Optional[Tensor],
         found_inf:Optional[Tensor]):
@@ -1320,37 +1403,39 @@ def _fused_sgm(com_sets:common_sets, steps: List[Tensor],
     assert grad_scale is None and found_inf is None        
     
     grouped_tensors = _group_tensors_by_device_and_dtype(
-        [params, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, lr_avgb_list, lr_avga_list, lr_save_list,
-        steps])
+        [params, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, lr_avgb_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps])
     
     firstgrp=True
     for (device, dtype) in grouped_tensors:
         (
-            device_params, device_w, device_w_smth, 
-            device_grads,device_grads_smth, device_grads_var, 
-            device_lrb, device_lra, device_lr, device_steps
+            dev_params, dev_wt, dev_wt_smth, 
+            dev_grads,dev_grads_smth, dev_grads_var, 
+            dev_lrb, dev_lra, dev_lrm, dev_lrsq, dev_steps
         ) = grouped_tensors[(device, dtype)] 
 
         
+        
+        #todo: 
+        # for each variable, get a list of levels 
+        # flatten tensors in each level 
+        # current behaviour, takes a list of variables and flattens each variable with no idea they have multiple levels.
+        
         # flatten group
-        f_params, f_w, f_w_smth, f_grads, f_grads_smth, f_grads_var, f_lrb, f_lra, f_lr, nel = _fuse_grouped_tensors(
-            [device_params, device_w, device_w_smth, device_grads,device_grads_smth, device_grads_var, device_lrb, device_lra, device_lr], 
+        f_params, f_w, f_w_smth, f_grads, f_grads_smth, f_grads_var, f_lrb, f_lra, f_lrm, f_lrsq, nel = _fuse_grouped_tensors(
+            [dev_params, dev_wt, dev_wt_smth, dev_grads,dev_grads_smth, dev_grads_var, dev_lrb, dev_lra, dev_lrm, dev_lrsq], 
             device, dtype
             )
         
-        if device_steps[0] == 1 and firstgrp:    
+        if dev_steps[0] == 1 and firstgrp:    
             com_sets.lpf.abnormal = False     
             com_sets.est_numels = nel
-            # LOG.
-            com_sets.log_stats()     
+            com_sets.log_stats()  # LOG.   
             firstgrp = False
         
         
-        lr_init, beta_i, beta_e, beta_a, \
-        beta_o, beta_d, eps, \
-        wdecay, fzero, fone, auto_mode = com_sets.grp_devdt(device,dtype)
+        com_sets.grp_devdt(device,dtype)
             
-        step = device_steps[0]
+        step = dev_steps[0]
 
         w_t = f_w
         w_smth = f_w_smth
@@ -1359,19 +1444,20 @@ def _fused_sgm(com_sets:common_sets, steps: List[Tensor],
         grad_var = f_grads_var
         lr_avgb = f_lrb
         lr_avga = f_lra
-        lr = f_lr
+        lrm = f_lrm
+        lrsq = f_lrsq
             
         # handle complex parameters
         if torch.is_complex(f_params):
             f_params = torch.view_as_real(f_params)
-            w_t = torch.view_as_real(w_t)
-            w_smth = torch.view_as_real(w_smth)
-            grad = torch.view_as_real(grad)
-            grad_smth = torch.view_as_real(grad_smth)
-            grad_var = torch.view_as_real(grad_var)          
-            lr_avgb = torch.view_as_real(lr_avgb)
-            lr_avga = torch.view_as_real(lr_avga)
-            lr = torch.view_as_real(lr)
+            # w_t = torch.view_as_real(w_t)
+            # w_smth = torch.view_as_real(w_smth)
+            # grad = torch.view_as_real(grad)
+            # grad_smth = torch.view_as_real(grad_smth)
+            # grad_var = torch.view_as_real(grad_var)          
+            # lr_avgb = torch.view_as_real(lr_avgb)
+            # lr_avga = torch.view_as_real(lr_avga)
+            # lr = torch.view_as_real(lr)
             
         
         # START
@@ -1401,7 +1487,7 @@ def _fused_sgm(com_sets:common_sets, steps: List[Tensor],
         g_t.add_(v_diff)
         m_t.add_(v_diff)
         
-        if auto_mode in [0,2]:
+        if norm_all in [0,2]:
             # denominator of the bayes-optimal step_size
             # in: averaging [lowpass] ~ approx. input variance
             v_var_t, grad_var = com_sets.lpf.compute(in_k=(g_t*g_t.conj()), x=grad_var, beta=beta_e, step=step)
@@ -1437,7 +1523,7 @@ def _fused_sgm(com_sets:common_sets, steps: List[Tensor],
             # abs. val projection. to ensure positive rates.
             alpha_hat_t = (lrat.abs_())
             
-        elif com_sets.autolr and auto_mode==1: # 1984 impl.
+        elif com_sets.autolr and norm_all==1: # 1984 impl.
             # no normalization is done here.
             # lr_init 
             
@@ -1477,7 +1563,6 @@ def _fused_sgm(com_sets:common_sets, steps: List[Tensor],
             lr.add_(alpha_hat_t)     
         # END    
             
-
 def _fuse_grouped_tensors(tensorlists, device, dtype):
     ''' helper function to fuse tensors in a list'''
     fused_tensorlists = []
@@ -1508,7 +1593,6 @@ def _fuse_grouped_tensors(tensorlists, device, dtype):
         
         else:
             # list of scalars, non-tensor type to match network params
-            # for auto_mode.
             sctensorlist = torch.zeros(nnel, dtype=dtype, device=device)
             i = 0
             for p, im in zip(tensorlist, m):
