@@ -1384,225 +1384,225 @@ def _multi_tensor_sgm(com_sets:common_sets,
                     else:
                         params_[i][rpl].mul_(0).add_(dev_wt[i][rpl])
 
-def _fused_sgm(com_sets:common_sets, steps:List[Tensor], params: List[Tensor], 
-        weight_list: List[List[Tensor]], 
-        weight_smth_list: List[List[Optional[Tensor]]], 
-        grad_list: List[List[Tensor]], 
-        grad_smth_list: List[List[Optional[Tensor]]],
-        grad_var_list: List[List[Optional[Tensor]]],
-        lr_avgb_list: List[List[Optional[Tensor]]], 
-        lr_avga_list: List[List[Optional[Tensor]]], 
-        lrm_save_list: List[List[Tensor]],lrsq_save_list: List[List[Tensor]],*,has_sparse_grad:bool,       
-        differentiable:Optional[bool],
-        grad_scale:Optional[Tensor],
-        found_inf:Optional[Tensor]):
+# def _fused_sgm(com_sets:common_sets, steps:List[Tensor], params: List[Tensor], 
+#         weight_list: List[List[Tensor]], 
+#         weight_smth_list: List[List[Optional[Tensor]]], 
+#         grad_list: List[List[Tensor]], 
+#         grad_smth_list: List[List[Optional[Tensor]]],
+#         grad_var_list: List[List[Optional[Tensor]]],
+#         lr_avgb_list: List[List[Optional[Tensor]]], 
+#         lr_avga_list: List[List[Optional[Tensor]]], 
+#         lrm_save_list: List[List[Tensor]],lrsq_save_list: List[List[Tensor]],*,has_sparse_grad:bool,       
+#         differentiable:Optional[bool],
+#         grad_scale:Optional[Tensor],
+#         found_inf:Optional[Tensor]):
     
-    if len(params) == 0:
-        return
+#     if len(params) == 0:
+#         return
     
-    assert grad_scale is None and found_inf is None        
+#     assert grad_scale is None and found_inf is None        
     
-    grouped_tensors = _group_tensors_by_device_and_dtype(
-        [params, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, lr_avgb_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps])
+#     grouped_tensors = _group_tensors_by_device_and_dtype(
+#         [params, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, lr_avgb_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps])
     
-    firstgrp=True
-    for (device, dtype) in grouped_tensors:
-        (
-            dev_params, dev_wt, dev_wt_smth, 
-            dev_grads,dev_grads_smth, dev_grads_var, 
-            dev_lrb, dev_lra, dev_lrm, dev_lrsq, dev_steps
-        ) = grouped_tensors[(device, dtype)] 
+#     firstgrp=True
+#     for (device, dtype) in grouped_tensors:
+#         (
+#             dev_params, dev_wt, dev_wt_smth, 
+#             dev_grads,dev_grads_smth, dev_grads_var, 
+#             dev_lrb, dev_lra, dev_lrm, dev_lrsq, dev_steps
+#         ) = grouped_tensors[(device, dtype)] 
 
         
         
-        #todo: 
-        # for each variable, get a list of levels 
-        # flatten tensors in each level 
-        # current behaviour, takes a list of variables and flattens each variable with no idea they have multiple levels.
+#         #todo: 
+#         # for each variable, get a list of levels 
+#         # flatten tensors in each level 
+#         # current behaviour, takes a list of variables and flattens each variable with no idea they have multiple levels.
         
-        # flatten group
-        f_params, f_w, f_w_smth, f_grads, f_grads_smth, f_grads_var, f_lrb, f_lra, f_lrm, f_lrsq, nel = _fuse_grouped_tensors(
-            [dev_params, dev_wt, dev_wt_smth, dev_grads,dev_grads_smth, dev_grads_var, dev_lrb, dev_lra, dev_lrm, dev_lrsq], 
-            device, dtype
-            )
+#         # flatten group
+#         f_params, f_w, f_w_smth, f_grads, f_grads_smth, f_grads_var, f_lrb, f_lra, f_lrm, f_lrsq, nel = _fuse_grouped_tensors(
+#             [dev_params, dev_wt, dev_wt_smth, dev_grads,dev_grads_smth, dev_grads_var, dev_lrb, dev_lra, dev_lrm, dev_lrsq], 
+#             device, dtype
+#             )
         
-        if dev_steps[0] == 1 and firstgrp:    
-            com_sets.lpf.abnormal = False     
-            com_sets.est_numels = nel
-            com_sets.log_stats()  # LOG.   
-            firstgrp = False
+#         if dev_steps[0] == 1 and firstgrp:    
+#             com_sets.lpf.abnormal = False     
+#             com_sets.est_numels = nel
+#             com_sets.log_stats()  # LOG.   
+#             firstgrp = False
         
         
-        com_sets.grp_devdt(device,dtype)
+#         com_sets.grp_devdt(device,dtype)
             
-        step = dev_steps[0]
+#         step = dev_steps[0]
 
-        w_t = f_w
-        w_smth = f_w_smth
-        grad = f_grads
-        grad_smth = f_grads_smth
-        grad_var = f_grads_var
-        lr_avgb = f_lrb
-        lr_avga = f_lra
-        lrm = f_lrm
-        lrsq = f_lrsq
+#         w_t = f_w
+#         w_smth = f_w_smth
+#         grad = f_grads
+#         grad_smth = f_grads_smth
+#         grad_var = f_grads_var
+#         lr_avgb = f_lrb
+#         lr_avga = f_lra
+#         lrm = f_lrm
+#         lrsq = f_lrsq
             
-        # handle complex parameters
-        if torch.is_complex(f_params):
-            f_params = torch.view_as_real(f_params)
-            # w_t = torch.view_as_real(w_t)
-            # w_smth = torch.view_as_real(w_smth)
-            # grad = torch.view_as_real(grad)
-            # grad_smth = torch.view_as_real(grad_smth)
-            # grad_var = torch.view_as_real(grad_var)          
-            # lr_avgb = torch.view_as_real(lr_avgb)
-            # lr_avga = torch.view_as_real(lr_avga)
-            # lr = torch.view_as_real(lr)
+#         # handle complex parameters
+#         if torch.is_complex(f_params):
+#             f_params = torch.view_as_real(f_params)
+#             # w_t = torch.view_as_real(w_t)
+#             # w_smth = torch.view_as_real(w_smth)
+#             # grad = torch.view_as_real(grad)
+#             # grad_smth = torch.view_as_real(grad_smth)
+#             # grad_var = torch.view_as_real(grad_var)          
+#             # lr_avgb = torch.view_as_real(lr_avgb)
+#             # lr_avga = torch.view_as_real(lr_avga)
+#             # lr = torch.view_as_real(lr)
             
         
-        # START
-        mwd = 1-wdecay
-        g_t = com_sets.lpf.patch(grad,beta=beta_o,step=step,mode=3) 
-        if com_sets.join_wdec:
-            # decay weight directly
-            w_t.mul_(mwd)
-        else:
-            # decay weight as l2-regularized gradient
-            g_t.addcmul_(w_t,wdecay)
-        if com_sets.down: g_t.neg_()
+#         # START
+#         mwd = 1-wdecay
+#         g_t = com_sets.lpf.patch(grad,beta=beta_o,step=step,mode=3) 
+#         if com_sets.join_wdec:
+#             # decay weight directly
+#             w_t.mul_(mwd)
+#         else:
+#             # decay weight as l2-regularized gradient
+#             g_t.addcmul_(w_t,wdecay)
+#         if com_sets.down: g_t.neg_()
                         
-        # flip sign, if maximizing.
-        if com_sets.maximize: g_t.neg_()
+#         # flip sign, if maximizing.
+#         if com_sets.maximize: g_t.neg_()
         
-        # smooth input [lowpass]
-        m_t_min_1 = com_sets.lpf.previous(xkm1=grad_smth, beta=beta_i, step=step)
+#         # smooth input [lowpass]
+#         m_t_min_1 = com_sets.lpf.previous(xkm1=grad_smth, beta=beta_i, step=step)
         
-        gradss_t_min_1 = m_t_min_1.mul(g_t)
+#         gradss_t_min_1 = m_t_min_1.mul(g_t)
         
-        m_t, grad_smth = com_sets.lpf.compute(in_k=g_t, x=grad_smth, beta=beta_i, step=step)
+#         m_t, grad_smth = com_sets.lpf.compute(in_k=g_t, x=grad_smth, beta=beta_i, step=step)
             
-        # smooth input [add average time-diff] 
-        if step == 1: v_diff = 0
-        else: v_diff = smooth_td(beta_d, m_t, m_t_min_1)
-        g_t.add_(v_diff)
-        m_t.add_(v_diff)
+#         # smooth input [add average time-diff] 
+#         if step == 1: v_diff = 0
+#         else: v_diff = smooth_td(beta_d, m_t, m_t_min_1)
+#         g_t.add_(v_diff)
+#         m_t.add_(v_diff)
         
-        if norm_all in [0,2]:
-            # denominator of the bayes-optimal step_size
-            # in: averaging [lowpass] ~ approx. input variance
-            v_var_t, grad_var = com_sets.lpf.compute(in_k=(g_t*g_t.conj()), x=grad_var, beta=beta_e, step=step)
+#         if norm_all in [0,2]:
+#             # denominator of the bayes-optimal step_size
+#             # in: averaging [lowpass] ~ approx. input variance
+#             v_var_t, grad_var = com_sets.lpf.compute(in_k=(g_t*g_t.conj()), x=grad_var, beta=beta_e, step=step)
             
-            # normalized input
-            # malt_t = m_t.div((v_var_t.add(eps)).sqrt_())
-            (m_t).div_((v_var_t.sqrt_()).add_(eps))
+#             # normalized input
+#             # malt_t = m_t.div((v_var_t.add(eps)).sqrt_())
+#             (m_t).div_((v_var_t.sqrt_()).add_(eps))
 
-        # learning rate estimation
-        if com_sets.autolr:
-            # computes numerator of the bayes-optimal step_size
-            # computes approx. linear correlation funcion 
+#         # learning rate estimation
+#         if com_sets.autolr:
+#             # computes numerator of the bayes-optimal step_size
+#             # computes approx. linear correlation funcion 
             
-            # surrogate approx. for w^\star 
-            if com_sets.join_wdec:
-                ewg_t = m_t.mul(w_t)
-            else:
-                ewg_t = m_t.mul(w_t.mul(mwd))
+#             # surrogate approx. for w^\star 
+#             if com_sets.join_wdec:
+#                 ewg_t = m_t.mul(w_t)
+#             else:
+#                 ewg_t = m_t.mul(w_t.mul(mwd))
 
-            # restart logic: idea is that, after the first k>0 epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs [with an averagely constant/cyclic learning-rate for each parameter.] without becoming too small.
-            # cyclic step
-            step_c = (((step-1) % (com_sets.spe*com_sets.epfreq)) + 1)
-            # scaling and restart lowpass state at the end of every 'k' epoch.
-            if com_sets.restarts and step_c == 1 and step > 1:
-                lr_avgb.mul_(0).add_(com_sets.rstfact*(lr_init+lr_avgb))
-                lr_avga.mul_(0).add_(com_sets.rstfact*(lr_init+lr_avga))
+#             # restart logic: idea is that, after the first k>0 epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs [with an averagely constant/cyclic learning-rate for each parameter.] without becoming too small.
+#             # cyclic step
+#             step_c = (((step-1) % (com_sets.spe*com_sets.epfreq)) + 1)
+#             # scaling and restart lowpass state at the end of every 'k' epoch.
+#             if com_sets.restarts and step_c == 1 and step > 1:
+#                 lr_avgb.mul_(0).add_(com_sets.rstfact*(lr_init+lr_avgb))
+#                 lr_avga.mul_(0).add_(com_sets.rstfact*(lr_init+lr_avga))
                             
-            # linear correlation estimate update  
-            # (double averaging [lowpass]), 
-            # Note: future work: how to estimate this more accurately?    
-            lrat, lr_avgb, lr_avga = com_sets.lpf.compute_dbl(in_k=ewg_t, x1=lr_avgb, x2=lr_avga, beta1=beta_a, beta2=beta_e, step=step)
+#             # linear correlation estimate update  
+#             # (double averaging [lowpass]), 
+#             # Note: future work: how to estimate this more accurately?    
+#             lrat, lr_avgb, lr_avga = com_sets.lpf.compute_dbl(in_k=ewg_t, x1=lr_avgb, x2=lr_avga, beta1=beta_a, beta2=beta_e, step=step)
             
-            # abs. val projection. to ensure positive rates.
-            alpha_hat_t = (lrat.abs_())
+#             # abs. val projection. to ensure positive rates.
+#             alpha_hat_t = (lrat.abs_())
             
-        elif com_sets.autolr and norm_all==1: # 1984 impl.
-            # no normalization is done here.
-            # lr_init 
+#         elif com_sets.autolr and norm_all==1: # 1984 impl.
+#             # no normalization is done here.
+#             # lr_init 
             
            
-            lr_avgb.mul_(0).add_(lr_init)
-            lr_avga.addcmul_(gradss_t_min_1, lr_avgb)
+#             lr_avgb.mul_(0).add_(lr_init)
+#             lr_avga.addcmul_(gradss_t_min_1, lr_avgb)
             
-            # restarts:
-            # push close to zero, if a negative element occurs.
-            lrat = lr_avga.relu().add(eps)
+#             # restarts:
+#             # push close to zero, if a negative element occurs.
+#             lrat = lr_avga.relu().add(eps)
             
-            alpha_hat_t = 1*lrat
-        else:
-            # use externally supplied linear correlation estimate 
-            alpha_hat_t = lr_init      
+#             alpha_hat_t = 1*lrat
+#         else:
+#             # use externally supplied linear correlation estimate 
+#             alpha_hat_t = lr_init      
 
-        # integrate: state update
-        if com_sets.down:
-            w_t.addcmul_(m_t, alpha_hat_t)
-        else:
-            w_t.addcmul_(m_t, alpha_hat_t, value=-1)
+#         # integrate: state update
+#         if com_sets.down:
+#             w_t.addcmul_(m_t, alpha_hat_t)
+#         else:
+#             w_t.addcmul_(m_t, alpha_hat_t, value=-1)
         
-        # smooth out. [lowpass]
-        w_est, w_smth = com_sets.lpf.compute(in_k=w_t, x=w_smth, beta=beta_o, step=step, mode=3)
+#         # smooth out. [lowpass]
+#         w_est, w_smth = com_sets.lpf.compute(in_k=w_t, x=w_smth, beta=beta_o, step=step, mode=3)
             
-        # pass estimated/updated weight values back to the neural network's placeholder.   
-        f_params.mul_(0).add_(w_est)
+#         # pass estimated/updated weight values back to the neural network's placeholder.   
+#         f_params.mul_(0).add_(w_est)
         
-        # log lr
-        if com_sets.autolr and com_sets.lrlogstep:
-            # we want to do this per step
-            lr.mul_(0).add_(alpha_hat_t)
-        elif com_sets.autolr and not com_sets.lrlogstep:
-            # to save time and memory,
-            # we want to do this per epoch
-            # but get the average over all steps in that epoch. 
-            lr.add_(alpha_hat_t)     
-        # END    
+#         # log lr
+#         if com_sets.autolr and com_sets.lrlogstep:
+#             # we want to do this per step
+#             lr.mul_(0).add_(alpha_hat_t)
+#         elif com_sets.autolr and not com_sets.lrlogstep:
+#             # to save time and memory,
+#             # we want to do this per epoch
+#             # but get the average over all steps in that epoch. 
+#             lr.add_(alpha_hat_t)     
+#         # END    
             
-def _fuse_grouped_tensors(tensorlists, device, dtype):
-    ''' helper function to fuse tensors in a list'''
-    fused_tensorlists = []
-    m = []
-    nnel = None
-    first = True
-    for tensorlist in tensorlists:
+# def _fuse_grouped_tensors(tensorlists, device, dtype):
+#     ''' helper function to fuse tensors in a list'''
+#     fused_tensorlists = []
+#     m = []
+#     nnel = None
+#     first = True
+#     for tensorlist in tensorlists:
         
-        if first==True:
-            # compute len of each param and sum
-            m += [p.numel() for p in tensorlist if isinstance(p, torch.Tensor)]
-            nnel = sum(im for im in m)
-            first = False
+#         if first==True:
+#             # compute len of each param and sum
+#             m += [p.numel() for p in tensorlist if isinstance(p, torch.Tensor)]
+#             nnel = sum(im for im in m)
+#             first = False
             
-        n = sum(p.numel() for p in tensorlist if isinstance(p, torch.Tensor))
+#         n = sum(p.numel() for p in tensorlist if isinstance(p, torch.Tensor))
         
-        if n > 0:
-            fused_tensorlist = torch.zeros(n, dtype=dtype, device=device)
+#         if n > 0:
+#             fused_tensorlist = torch.zeros(n, dtype=dtype, device=device)
             
-            # fuse ops
-            i = 0
-            for p in tensorlist: 
-                params_slice = fused_tensorlist[i:i + p.numel()]
-                with torch.no_grad(): params_slice.copy_(p.flatten())
-                p.data = params_slice.view(p.shape)
-                i += p.numel()
-            fused_tensorlists.append(fused_tensorlist)
+#             # fuse ops
+#             i = 0
+#             for p in tensorlist: 
+#                 params_slice = fused_tensorlist[i:i + p.numel()]
+#                 with torch.no_grad(): params_slice.copy_(p.flatten())
+#                 p.data = params_slice.view(p.shape)
+#                 i += p.numel()
+#             fused_tensorlists.append(fused_tensorlist)
         
-        else:
-            # list of scalars, non-tensor type to match network params
-            sctensorlist = torch.zeros(nnel, dtype=dtype, device=device)
-            i = 0
-            for p, im in zip(tensorlist, m):
-                sctensorlist[i:i + im] = p
-                i += im
-            fused_tensorlists.append(sctensorlist)
+#         else:
+#             # list of scalars, non-tensor type to match network params
+#             sctensorlist = torch.zeros(nnel, dtype=dtype, device=device)
+#             i = 0
+#             for p, im in zip(tensorlist, m):
+#                 sctensorlist[i:i + im] = p
+#                 i += im
+#             fused_tensorlists.append(sctensorlist)
     
-    # nnel = fused_tensorlists[0].shape[0]
-    fused_tensorlists.append(nnel)
-    return fused_tensorlists
+#     # nnel = fused_tensorlists[0].shape[0]
+#     fused_tensorlists.append(nnel)
+#     return fused_tensorlists
 
 
 
