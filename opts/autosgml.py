@@ -478,7 +478,7 @@ class common_sets():
         # logging.
         txt = "="
         infostr = "AutoSGM info:\t"          
-        strlog = f"{infostr} [total params, d={self.est_numels}], restarts={self.restarts}\n[autolr={self.autolr}, levels={self.p}, init_lr={self.lr_init:.5g} |\n lpf. [i,e,o] : {self.beta_i:.4g}, {self.beta_e:.4g}, {self.beta_o:.4g} | hpf. : {self.beta_d:.4g} |\n eps : {self.eps:.4g} | weight-decay: {self.wd_cte:.4g}]"
+        strlog = f"{infostr} [total params, d={self.est_numels}], restarts={self.restarts}\n[autolr={self.autolr}, levels={self.p}, init_lr={self.lr_init:.5g} |\n lpfs. [i,e,o] : {self.beta_i:.4g}, {self.beta_e:.4g}, {self.beta_o:.4g} | hpf. : {self.beta_d:.4g} |\n eps : {self.eps:.4g} | weight-decay: {self.wd_cte:.4g}]"
         # debug  
         print(f"{txt * int(0.35*len(strlog)) }")
         print(strlog) #      
@@ -691,7 +691,7 @@ class common_sets():
                 m_t, w_t, lr_avga, lr_avgb):
         
         # com_sets.autolr = False
-        # computes numerator of the bayes-optimal step_size
+        # computes numerator of an optimal step_size
         # computes approx. linear correlation funcion         
         # learning rate estimation
         if self.autolr:
@@ -701,7 +701,7 @@ class common_sets():
                 # surrogate approx. without w^\star 
                 ewg_t = m_t[rpl].mul(w_t[rpl])
                                 
-                # restart logic: idea is that, after the first k epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs, with an averagely constant learning-rate for each parameter.
+                # restart logic: idea is that, after the first k epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs
                 # cyclic step
                 step_c = (((step-1) % (self.spe*self.epfreq)) + 1)
                 # restart lowpass state at the end of every 'k' epoch.
@@ -715,8 +715,8 @@ class common_sets():
                 # Note: future work: how to estimate this more accurately?
                 if rpl == 0: 
                     # (double averaging [lowpass]), 
-                    # lrat, lr_avgb[rpl], lr_avga[rpl] = self.lpf.compute_dbl(in_k=ewg_t, x1=lr_avgb[rpl], x2=lr_avga[rpl], beta1=self.dev_beta_a, beta2=self.dev_beta_e, step=step)
-                    lrat, lr_avgb[rpl] = self.lpf.compute(in_k=ewg_t, x=lr_avgb[rpl], beta=self.dev_beta_e, step=step, mode=3)  
+                    lrat, lr_avgb[rpl], lr_avga[rpl] = self.lpf.compute_dbl(in_k=ewg_t, x1=lr_avgb[rpl], x2=lr_avga[rpl], beta1=self.dev_beta_a, beta2=self.dev_beta_e, step=step)
+                    # lrat, lr_avgb[rpl] = self.lpf.compute(in_k=ewg_t, x=lr_avgb[rpl], beta=self.dev_beta_e, step=step, mode=3)  
                     # abs. val projection. to ensure positive rates.
                     alpha_hat_t = (lrat.abs())
                 else:
@@ -732,7 +732,7 @@ class common_sets():
                 
                 # surrogate approx. without w^\star 
                 ewg_t = torch._foreach_mul(m_t[rpl],wrpl)            
-                # restart logic: idea is that, after the first k epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs, with an averagely constant learning-rate for each parameter.
+                # restart logic: idea is that, after the first k epochs, the gradient of the learning system will be far smaller than during initialization. Therefore, we can restart the state of the lowpass filter with a relatively higher initial learning rate than during initialization, so that the learning system can generalize better after the first k epochs.
                 # cyclic step
                 step_c = (((step-1) % (self.spe*self.epfreq)) + 1)
                 # restart lowpass state at the end of every 'k' epoch.
@@ -752,11 +752,13 @@ class common_sets():
                 if rpl == 0: 
                     # (double averaging [lowpass]), 
                     lrat, lrbrpl, lrarpl = self.lpf.compute_dbl(in_k=ewg_t, x1=lrbrpl, x2=lrarpl, beta1=self.dev_beta_a, beta2=self.dev_beta_e, step=step)
+                    # lrat, lrbrpl = self.lpf.compute(in_k=ewg_t, x=lrbrpl, beta=self.dev_beta_e, step=step, mode=3) 
                     
                     # abs. val projection. to ensure positive rates.
                     alpha_hat_t = torch._foreach_abs(lrat)
                 else:
-                    lrat, lrbrpl = self.lpf.compute(in_k=ewg_t, x=lrbrpl, beta=self.dev_beta_e, step=step, mode=3)    
+                    lrat, lrbrpl, lrarpl = self.lpf.compute_dbl(in_k=ewg_t, x1=lrbrpl, x2=lrarpl, beta1=self.dev_beta_a, beta2=self.dev_beta_e, step=step)
+                    # lrat, lrbrpl = self.lpf.compute(in_k=ewg_t, x=lrbrpl, beta=self.dev_beta_e, step=step, mode=3)    
                                
                     # abs. val projection. to ensure positive rates.
                     alpha_hat_t = torch._foreach_abs(lrat)
