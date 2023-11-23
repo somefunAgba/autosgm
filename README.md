@@ -60,7 +60,7 @@ Download or Clone (cloning requires `git` on your machine).
 Load an AutoSGM implementation. (This assumes this library, was directly git cloned to the root path of your project.)
 ```
 ...
-import opts.autosgm as AutoSGM
+import opts.autosgml as AutoSGM
 ...
 ```
 ****

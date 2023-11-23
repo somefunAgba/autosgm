@@ -1179,7 +1179,8 @@ def sgm(com_sets:common_sets, steps:List[Tensor], params: List[Tensor],
         raise RuntimeError('torch.jit.script not supported with foreach ops.')
     
     if fused and not torch.jit.is_scripting():
-        func = _fused_sgm
+        # func = _fused_sgm
+        raise NotImplementedError('please: use foreach, instead of fused!')
     elif foreach and not torch.jit.is_scripting():
         func = _multi_tensor_sgm
     else:
