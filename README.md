@@ -46,7 +46,7 @@ for best practices on this.
 `pip install -r requirements.txt` -->
 
 ## Getting Started (installing)
-Download or Clone (cloning requires `git` on your machine).
+Download or Clone with `git`.
 ```
 >> git clone https://github.com/somefunagba/autosgm.git
 ```
@@ -68,12 +68,12 @@ import opts.autosgml as AutoSGM
 Using PyTorch, say you have constructed a neural network called `mmn`, 
 you can then: call an instance of the loaded AutoSGM, pass in the parameters of the model `mmn.parameters()`, and set other options.
 ```
-optimizer = AutoSGM(mnn.parameters(), spe=len(train_dataloader))
-optimizer = AutoSGM(mnn.parameters(), spe=len(train_dataloader), epfreq=10)
+optimizer = AutoSGM(mnn.parameters(), levels=2, foreach=True)
+optimizer = AutoSGM(mnn.parameters(), restarts=True, spe=len(train_dataloader), epfreq=10)
 ```
-`spe` means steps per epoch and refers to the number of batches which is the data-size divided by batch-size. Defaults to `1` if not specified. Helps to detect, when the learning regime has enter a new epoch from a new iteration step.
+`spe` means steps per epoch and refers to the number of batches which is the data-size divided by batch-size. Defaults to `1` if not specified. Helps to detect, when the learning regime has enter a new epoch from a new iteration step. Inactive if `restarts` is `False`.
 
-`epfreq` indicates the successive per-epoch frequency of restarting the lowpass filter generating the learning rates. Defaults to `1`, restarting every epoch, if not specified.
+`epfreq` indicates the successive per-epoch frequency of restarting the lowpass filter generating the learning rates. Defaults to `1`, restarting every epoch, if not specified. Inactive if `restarts` is `False`.
 
 More possible options are documented in each AutoSGM implementations in the [opts](opts/) directory. 
 Most options likely need not be changed from their defaults.
