@@ -994,9 +994,9 @@ class AutoSGM(Optimizer):
         eps (float, optional): a positive constant added to condition the sqrt. of the graident variance (default: 1e-8).
         weight_decay (float, optional): weight decay (L2 penalty) (default: 0).       
          
-        levels (int, optional) number of levels to use in this AutoSGM implementation (default: 1).
+        levels (int, optional): number of levels to use in this AutoSGM implementation (default: 1).
         
-        restarts (bool, optional) use a raised cosine filter function to shape the learning-rate (default: False).
+        restarts (bool, optional): use a raised cosine filter function to shape the learning-rate (default: False).
         spe (int, optional): steps per epoch, also called number of batches = len(trainloader). Set if restarts is True (default:1).
         movwin (int, optional): frequency width in epochs. Set >= 1 if restarts is True (default:1).
         movwin_upfac (int, optional): frequency width upsampling factor. Set >= 1, if restarts is True (default:2).        
@@ -1006,7 +1006,7 @@ class AutoSGM(Optimizer):
         maximize (bool, optional): whether the objective is being maximized
             (default: False).
 
-        lrlogstep:(bool, optional) how to log learning-rates: per step (True) or per epoch (False)  (default: True).
+        lrlogstep (bool, optional): how to log learning-rates: per step (True) or per epoch (False)  (default: True).
             
         foreach (bool, optional): fast cuda operation on lists instead of looping.
         differentiable (bool, optional): set if tensors can do backpropagation during learning.

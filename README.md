@@ -69,11 +69,13 @@ Using PyTorch, say you have constructed a neural network called `mmn`,
 you can then: call an instance of the loaded AutoSGM, pass in the parameters of the model `mmn.parameters()`, and set other options.
 ```
 optimizer = AutoSGM(mnn.parameters(), levels=2, foreach=True)
-optimizer = AutoSGM(mnn.parameters(), restarts=True, spe=len(train_dataloader), epfreq=10)
+optimizer = AutoSGM(mnn.parameters(), restarts=True, spe=len(train_dataloader))
 ```
-`spe` means steps per epoch and refers to the number of batches which is the data-size divided by batch-size. Defaults to `1` if not specified. Helps to detect, when the learning regime has enter a new epoch from a new iteration step. Inactive if `restarts` is `False`.
+`spe` (int, optional): means steps per epoch and refers to the number of batches which is the data-size divided by batch-size. Defaults to `1` if not specified. Helps to detect, when the learning regime has enter a new epoch from a new iteration step. Inactive if `restarts` is `False`.
 
-`epfreq` indicates the successive per-epoch frequency of restarting the lowpass filter generating the learning rates. Defaults to `1`, restarting every epoch, if not specified. Inactive if `restarts` is `False`.
+`restarts` (bool, optional): use a raised cosine lowpass filter function to shape the learning-rate (default: False).
+
+<!-- `movwin` indicates the successive frequency (in epochs) of restarting a raised cosine lowpass filter generating the learning rates. Defaults to `1`, restarting every epoch, if not specified. Inactive if `restarts` is `False`. -->
 
 More possible options are documented in each AutoSGM implementations in the [opts](opts/) directory. 
 Most options likely need not be changed from their defaults.
