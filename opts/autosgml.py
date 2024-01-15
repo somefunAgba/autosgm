@@ -1061,7 +1061,7 @@ class AutoSGM(Optimizer):
                 beta_o=0, beta_d=0,
                 levels=1,
                 decoup_wd:Optional[bool]=None,
-                autowd:Optional[bool]=True,
+                autowd:Optional[bool]=None,
                 autolr:Optional[bool]=True, restarts:bool=False, down:bool=False,
                 maximize:bool=False, lrlogstep:bool=True, 
                 foreach: Optional[bool]=None,
