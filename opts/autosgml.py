@@ -493,11 +493,12 @@ class common_sets():
         return (curr-past).mul_(curr+past).mul_(0.5*self.beta_d)  
 
     # weight-decay parameter update
-    def wd_adapt(self, step, wd_param, grad, wt, wd_pgrad, wd_grad_var, wd_lra):
+    def wd_adapt(self, step, wd_param, grad, wt, wd_pgrad, wd_grad_var, wd_lra, a_t):
                 
         if not self.lpf.tensor_lists:
             
             # trace gradient
+            m_t = []
             g_t = wd_pgrad[0].mul(grad)
             
             # gradient's variance/power
@@ -505,46 +506,38 @@ class common_sets():
                 
             v_sd_t = (v_var_t.sqrt()).add_(self.dev_eps)
             # normalized input
-            m_t = (g_t).div(v_sd_t) 
+            m_t.append((g_t).div(v_sd_t)) 
             
             
             # compute lr
-            if self.autowd == True:
-                wd_wg = wd_param[0].mul(m_t)
-                
-                lrat, wd_lra[0] = self.lpf.compute(in_t=wd_wg, x=wd_lra[0], beta=self.dev_ssbeta, step=step)
-                
-                alpha_hat_t = lrat.abs()
-            else:
-                alpha_hat_t = wd_lra[0]
-                
+            alpha_hat_t = self.lr_compute(self.autowd, step, 0, m_t, m_t, wd_param, wd_lra, a_t)
             alpha_hat_t = torch.clamp_max(alpha_hat_t.relu().add(self.dev_eps), 0.1) # safeguard (0,0.1) 
 
-            # compute scaler
-            # bt = 1
-            # if (self.decpl_wd is False) or (self.decpl_wd is None):
-            #     bt = 1 - (wd_pgrad*wt[0]).mul(alpha_hat_t).div(v_sd_t)
-            
             # integrate wd cte parameter 
-            wd_param[0].add_(m_t.mul(alpha_hat_t)) 
-            # project/scale
-            # wd_param[0].div_(bt)
+            downval = self.down
+            self.down = True
+            self.integrator(wd_param, m_t, 0, alpha_hat_t)
+            self.down = downval
             
             # update partial gradient
             wd_pgrad[0].mul_(0).add_(wt[0])
+            
         
             wd_cte_t = 1*wd_param[0]
             
         elif self.lpf.tensor_lists:
             # first level parameters from all nn layers
-            wd_param_ = [ allist[0] for allist in wd_param]
+            
             grad_ = [ allist[0] for allist in grad]
+            wt_ = [ allist[0] for allist in wt]
             wd_pgrad_ = [ allist[0] for allist in wd_pgrad]
             wd_grad_var_ = [ allist[0] for allist in wd_grad_var]
-            wt_ = [ allist[0] for allist in wt]
-            wd_lra_ = [ allist[0] for allist in wd_lra]
+            
+            # wd_param_ = [ allist[0] for allist in wd_param]
+            # wd_lra_ = [ allist[0] for allist in wd_lra]
             
             # trace gradient
+            m_t = []
             g_t = torch._foreach_mul(wd_pgrad_, grad_)
             
             # gradient's variance/power
@@ -552,31 +545,27 @@ class common_sets():
         
             v_sd_t = torch._foreach_add(torch._foreach_sqrt(v_var_t), self.dev_eps)
             # integrator input, to be passed to upper levels 
-            m_t = torch._foreach_div(g_t, v_sd_t)
+            m_t.append(torch._foreach_div(g_t, v_sd_t))
             
             # compute lr
-            if self.autowd == True:
-                wd_wg = torch._foreach_mul(wd_param_,m_t)
-                
-                lrat, wd_lra_ = self.lpf.compute(in_t=wd_wg, x=wd_lra_, beta=self.dev_ssbeta, step=step)
-                
-                alpha_hat_t = torch._foreach_abs(lrat)
-            else:
-                alpha_hat_t = wd_lra_
-                
+            alpha_hat_t = self.lr_compute(self.autowd, step, 0, m_t, m_t, wd_param, wd_lra, a_t)
             # safeguard
             alpha_hat_t = torch._foreach_add(torch._foreach_clamp_min(alpha_hat_t, 0), self.dev_eps)
             torch._foreach_clamp_max_(alpha_hat_t, 0.1)            
             
             # integrate wd cte parameter 
-            torch._foreach_add_(wd_param_, torch._foreach_mul(m_t,alpha_hat_t)) 
+            downval = self.down
+            self.down = True
+            self.integrator(wd_param, m_t, 0, alpha_hat_t)
+            self.down = downval
             
             # update partial gradient
             torch._foreach_mul_(wd_pgrad_,0)
             torch._foreach_add_(wd_pgrad_, wt_)   
             
-            wd_cte_t = torch._foreach_mul(wd_param_,1)          
-        
+            wd_param_ = [ allist[0] for allist in wd_param]
+            wd_cte_t = torch._foreach_mul(wd_param_,1)  
+            
         return wd_cte_t
 
 
@@ -836,7 +825,7 @@ class common_sets():
                     torch._foreach_add_(param, wrpl)                  
    
     # Compute lr (gain)
-    def lr_compute(self, step, rpl, g_t, 
+    def lr_compute(self, autolr, step, rpl, g_t, 
                 m_t, w_t, lr_avga, a_t):
             
         # learning rate estimation
@@ -845,10 +834,9 @@ class common_sets():
         
         # cyclic step at every 'epfreq'
         # step_c = (((step-1) % (self.spe*self.epfreq)) + 1)
-        # a_t = self.rcf_cmp(step)                    
-                                    
+        # a_t = self.rcf_cmp(step)                                               
 
-        if self.autolr==True:
+        if autolr==True:
 
             if not self.lpf.tensor_lists:
                              
@@ -888,7 +876,13 @@ class common_sets():
         else:
             # use a externally supplied (typically small) linear correlation estimate or value
             # with optional. rcf smooth 
-            alpha_hat_t = a_t*self.dev_lr_init   
+            # alpha_hat_t = a_t*self.dev_lr_init   
+            
+            if not self.lpf.tensor_lists:
+                alpha_hat_t = a_t*lr_avga[rpl]
+            else:
+                lrarpl = [ allist[rpl] for allist in lr_avga]  
+                alpha_hat_t = torch._foreach_mul(lrarpl, a_t)
             
         return alpha_hat_t 
 
@@ -994,9 +988,9 @@ class AutoSGM(Optimizer):
         eps (float, optional): a positive constant added to condition the sqrt. of the graident variance (default: 1e-8).
         weight_decay (float, optional): weight decay (L2 penalty) (default: 0).       
          
-        levels (int, optional): number of levels to use in this AutoSGM implementation (default: 1).
+        levels (int, optional) number of levels to use in this AutoSGM implementation (default: 1).
         
-        restarts (bool, optional): use a raised cosine filter function to shape the learning-rate (default: False).
+        restarts (bool, optional) use a raised cosine lowpass filter function to shape the learning-rate (default: False).
         spe (int, optional): steps per epoch, also called number of batches = len(trainloader). Set if restarts is True (default:1).
         movwin (int, optional): frequency width in epochs. Set >= 1 if restarts is True (default:1).
         movwin_upfac (int, optional): frequency width upsampling factor. Set >= 1, if restarts is True (default:2).        
@@ -1006,7 +1000,7 @@ class AutoSGM(Optimizer):
         maximize (bool, optional): whether the objective is being maximized
             (default: False).
 
-        lrlogstep (bool, optional): how to log learning-rates: per step (True) or per epoch (False)  (default: True).
+        lrlogstep:(bool, optional) how to log learning-rates: per step (True) or per epoch (False)  (default: True).
             
         foreach (bool, optional): fast cuda operation on lists instead of looping.
         differentiable (bool, optional): set if tensors can do backpropagation during learning.
@@ -1061,7 +1055,7 @@ class AutoSGM(Optimizer):
                 beta_o=0, beta_d=0,
                 levels=1,
                 decoup_wd:Optional[bool]=None,
-                autowd:Optional[bool]=None,
+                autowd:Optional[bool]=False,
                 autolr:Optional[bool]=True, restarts:bool=False, down:bool=False,
                 maximize:bool=False, lrlogstep:bool=True, 
                 foreach: Optional[bool]=None,
@@ -1491,7 +1485,7 @@ def _single_tensor_sgm(com_sets:common_sets,
             
         # at only the first level
         if com_sets.autowd is not None:
-            wdcte_t = com_sets.wd_adapt(step, wd_param, grad, w_t, wd_pgrad, wd_grad_var, wd_lr_avga)
+            wdcte_t = com_sets.wd_adapt(step, wd_param, grad, w_t, wd_pgrad, wd_grad_var, wd_lr_avga, a_t)
         else:
             wdcte_t = com_sets.dev_wd_cte
         
@@ -1509,7 +1503,7 @@ def _single_tensor_sgm(com_sets:common_sets,
           # compute step-size or lr.
           if rpl == levels-1:
             # at bottom node: base lr
-            alpha_hat_t = com_sets.lr_compute(step, rpl, g_t, m_t, w_t, lr_avga, a_t)        
+            alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step, rpl, g_t, m_t, w_t, lr_avga, a_t)        
           else:
             # at other nodes
             alpha_hat_t = torch.clamp_max(w_t[rpl+1].relu().add(com_sets.dev_eps), 1) # safeguard (0,1]            
@@ -1579,7 +1573,7 @@ def _multi_tensor_sgm(com_sets:common_sets,
         
         # at only the first level
         if com_sets.autowd is not None:
-            wdcte_t = com_sets.wd_adapt(step_this, dev_wd_param, dev_grads, dev_wt, dev_wd_pgrad, dev_wd_grad_var, dev_wd_lra)
+            wdcte_t = com_sets.wd_adapt(step_this, dev_wd_param, dev_grads, dev_wt, dev_wd_pgrad, dev_wd_grad_var, dev_wd_lra, a_t)
         else:
             wdcte_t = com_sets.dev_wd_cte
         
@@ -1597,7 +1591,7 @@ def _multi_tensor_sgm(com_sets:common_sets,
             # compute step-size or lr.
             if rpl == levels-1:
                 # at bottom node: base lr
-                alpha_hat_t = com_sets.lr_compute(step_this, rpl, g_t, m_t, dev_wt, dev_lra, a_t)   
+                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step_this, rpl, g_t, m_t, dev_wt, dev_lra, a_t)   
             else:
                 # at other nodes
                 wrpl_p1 = [ allist[rpl+1] for allist in dev_wt]
