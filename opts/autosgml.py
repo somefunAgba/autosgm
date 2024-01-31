@@ -123,7 +123,7 @@ class LPF():
         if not self.tensor_lists:
             u_t = 1*in_t
         elif self.tensor_lists:
-            u_t = torch._foreach_mul_(in_t,1) 
+            u_t = torch._foreach_mul(in_t,1) 
         else:
             return in_t
         
@@ -237,11 +237,12 @@ class LPF():
                 torch._foreach_add_(x, in_t)
                 out_t = torch._foreach_mul(x,1)                                           
 
-        # mix: shelve (might work better than the highpass addition below)
+        # MIX: 
+        # shelve (better smoothing (~ stateless, 2nd order) than the highpass addition below)
         if mix:
             self.shelve(u_t, out_t, mode, beta_t, one_minus_beta_t, beta_t_pow_t, one_minus_beta_t_pow_t)
             
-        # mix: highpass tap: get out_t - out_{t-1}
+        # MIX: highpass tap: get out_t - out_{t-1}
         if beta_d > 0 and t > 1:
             if not self.tensor_lists:
                 out_t.add_(hdiff)
@@ -564,12 +565,9 @@ class common_sets():
                 v_sd_t = (v_var_t.sqrt()).add_(self.dev_eps)
                 # integrator input, to be passed to upper levels 
                 (m_t).div_(v_sd_t)
-                # lr input   
-                (g_t).div_(v_sd_t) 
                             
             # flip sign, if maximizing. 
             if pl == 0 and (self.down or self.maximize): 
-                g_t.neg_()
                 m_t.neg_()
 
         
@@ -641,15 +639,13 @@ class common_sets():
 
                 v_sd_t = torch._foreach_add(torch._foreach_sqrt(torch._foreach_add(v_var_t,self.dev_eps)), (self.dev_eps))
                 # integrator input, to be passed to upper levels 
-                torch._foreach_div_(m_t, v_sd_t) 
-                # lr input   
-                torch._foreach_div_(g_t, v_sd_t) 
+                torch._foreach_div_(m_t, v_sd_t)
                   
             # flip sign, if maximizing.   
             if pl == 0 and self.down or self.maximize: 
-                torch._foreach_neg_(g_t)
+                torch._foreach_neg_(m_t)
                                   
-        return m_t, g_t
+        return m_t
                 
     # Integrator
     def integrator(self, w_t, m_t, rpl, alpha_hat_t, a_t=1):
@@ -695,7 +691,7 @@ class common_sets():
                     torch._foreach_add_(param, wrpl)                  
    
     # Compute lr (gain)
-    def lr_compute(self, autolr, step, rpl, g_t, m_t, w_t, lr_avga, a_t=1):# -> Tensor | Any | List[Tensor]:
+    def lr_compute(self, autolr, step, rpl, m_t, w_t, lr_avga, a_t=1):# -> Tensor | Any | List[Tensor]:
             
         # learning rate estimation
         # linear correlation estimate update  
@@ -1281,7 +1277,7 @@ def _single_tensor_sgm(com_sets:common_sets,
     
     com_sets.grp_devdt(device,dtype)
     levels = com_sets.p
-    a_t = com_sets.rcf_cmp(steps[0])    
+    af_t = com_sets.rcf_cmp(steps[0])    
         
     # LOG.
     if steps[0] == 1: com_sets.log_stats(params)    
@@ -1310,11 +1306,10 @@ def _single_tensor_sgm(com_sets:common_sets,
         wdcte_t = com_sets.dev_wd_cte
         
         # - TRACE gradients: top -> bottom node
-        g_t, m_t = [],[]
+        m_t = []
         for pl in range(levels):
-            smthval, gradval = com_sets.grader(step, pl, grad, grad_smth, grad_var, grad_in_t, w_t, wdcte_t, a_t)
-            m_t.append(smthval)
-            g_t.append(gradval)     
+            smthval = com_sets.grader(step, pl, grad, grad_smth, grad_var, grad_in_t, w_t, wdcte_t)
+            m_t.append(smthval) 
           
         for pl in range(levels):
             grad_in_t[pl] = grad_in_t[pl].mul_(0).add_(m_t[pl])
@@ -1322,20 +1317,23 @@ def _single_tensor_sgm(com_sets:common_sets,
 
         # - FLOW: bottom -> top node
         for rpl in range(levels-1, -1, -1):
-          # compute step-size or lr.
-          if rpl == levels-1:
-            # at bottom node: base lr
-            alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step, rpl, g_t, m_t, w_t, lr_avga)        
-          else:
-            # at other nodes
-            alpha_hat_t = torch.clamp_max(w_t[rpl+1].relu().add(com_sets.dev_eps), 1) # safeguard (0,1]            
+            if rpl != 0: a_t = 1
+            else: a_t = 1*af_t
             
-          # integrate: state update
-          com_sets.integrator(w_t, m_t, rpl, alpha_hat_t, a_t)            
-          # pass update to the neural network's placeholder.
-          com_sets.smooth_out(step, rpl, param, w_t, w_smth)           
-          # log lr
-          com_sets.logginglr(rpl, lrm, lrsq, alpha_hat_t)
+            # compute step-size or lr.
+            if rpl == levels-1:
+                # at bottom node: base lr
+                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step, rpl, m_t, w_t, lr_avga)        
+            else:
+                # at other nodes
+                alpha_hat_t = torch.clamp_max(w_t[rpl+1].relu().add(com_sets.dev_eps), 1) # safeguard (0,1]            
+                
+            # integrate: state update
+            com_sets.integrator(w_t, m_t, rpl, alpha_hat_t, a_t)            
+            # pass update to the neural network's placeholder.
+            com_sets.smooth_out(step, rpl, param, w_t, w_smth)           
+            # log lr
+            com_sets.logginglr(rpl, lrm, lrsq, alpha_hat_t)
 
         #::end flow
 
@@ -1358,7 +1356,7 @@ def _multi_tensor_sgm(com_sets:common_sets,
     assert grad_scale is None and found_inf is None
 
     if steps[0] == 1: com_sets.log_stats(params)
-    a_t = com_sets.rcf_cmp(steps[0])   
+    af_t = com_sets.rcf_cmp(steps[0])   
     
     grouped_tensors = _group_tensors_by_device_and_dtype(
         [params, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps])
@@ -1389,12 +1387,10 @@ def _multi_tensor_sgm(com_sets:common_sets,
         wdcte_t = com_sets.dev_wd_cte
         
         # - TRACE gradients
-        g_t, m_t = [],[]
-        # smthval_min_one = None
+        m_t = []
         for pl in range(levels):
-            smthval, gradval = com_sets.grader(step_this, pl, dev_grads, dev_grads_smth, dev_grads_var, dev_grad_in_t, dev_wt, wdcte_t)
-            m_t.append(smthval) 
-            g_t.append(gradval)                
+            smthval = com_sets.grader(step_this, pl, dev_grads, dev_grads_smth, dev_grads_var, dev_grad_in_t, dev_wt, wdcte_t)
+            m_t.append(smthval)                 
         # 
         for pl in range(levels):
             grad_in_pl = [allist[pl] for allist in dev_grad_in_t]
@@ -1404,10 +1400,13 @@ def _multi_tensor_sgm(com_sets:common_sets,
 
         # - FLOW: bottom -> top node
         for rpl in range(levels-1, -1, -1):
+            if rpl != 0: a_t = 1
+            else: a_t = 1*af_t
+            
             # compute step-size or lr.
             if rpl == levels-1:
                 # at bottom node: base lr
-                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step_this, rpl, g_t, m_t, dev_wt, dev_lra)   
+                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step_this, rpl, m_t, dev_wt, dev_lra)   
             else:
                 # at other nodes
                 wrpl_p1 = [ allist[rpl+1] for allist in dev_wt]
