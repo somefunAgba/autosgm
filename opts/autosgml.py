@@ -509,12 +509,12 @@ class common_sets():
         print(f"{pltxt}{dtxt*(maxlen+2)}{pltxt}\n")
                    
     # Trace Gradient Inputs
-    def grader(self, step, pl, grad_lev, grad_smth_lev, grad_var_lev, grad_lev_t1, w_lev, wd_cte_t, a_t=1):
+    def grader(self, step, pl, grad_lev, grad_smth_lev, grad_var_lev, grad_in_lev_t1, w_lev, wd_cte_t, a_t=1):
         
         if not self.lpf.tensor_lists:
             # get nn. gradient for current level
             if pl != 0:
-                grad_lev[pl].mul_(0).add_(-grad_lev_t1[pl-1].mul(grad_lev[pl-1]))
+                grad_lev[pl].mul_(0).add_(-grad_in_lev_t1[pl-1].mul(grad_lev[pl-1]))
             g_t = 1*grad_lev[pl]              
             
 
@@ -580,23 +580,19 @@ class common_sets():
             # get nn. gradient for current level
             if pl != 0:
                 # product of the previous level's current and past gradient
-                gpl_m1 = [ allist[pl-1] for allist in grad_lev]
-                gpl_m1_t1 = [ allist[pl-1] for allist in grad_lev_t1]
+                gpl_m1_t = [ allist[pl-1] for allist in grad_lev]
+                gpl_m1_t1 = [ allist[pl-1] for allist in grad_in_lev_t1]
                 
                 torch._foreach_mul_(gpl,0)
-                torch._foreach_add_(gpl, torch._foreach_mul(gpl_m1,gpl_m1_t1))
-                torch._foreach_neg_(gpl)
+                torch._foreach_add_(gpl, torch._foreach_mul(gpl_m1_t,torch._foreach_neg(gpl_m1_t1)))
+                
                 
             g_t = torch._foreach_mul(gpl,1)
             
             if pl == 0:  
                 # get weight for this level from all nn layers
                 wpl = [ allist[pl] for allist in w_lev]
-                
-                if self.dev_beta_o > 0:   
-                    # patch for gradient value, if weight value is smoothed
-                    g_t = self.lpf.patch(g_t, beta=self.dev_beta_o,step=step,mode=3) 
-                
+                                
                 # weight decay term: (l2-regularization)
                 ge_t = torch._foreach_mul(wpl, wd_cte_t)
                 
@@ -622,7 +618,7 @@ class common_sets():
                                                            
                 # current smooth value 
                 # with: optional mix or add a [highpass: time-difference value] to the gradient 
-                m_t, gsmthpl = self.lpf.compute(in_t=gin_t, x=gsmthpl, beta=self.dev_beta_i, step=step,mix=True, beta_d=self.dev_beta_d)
+                m_t, gsmthpl = self.lpf.compute(in_t=gin_t, x=gsmthpl, beta=self.dev_beta_i, step=step, mix=True, beta_d=self.dev_beta_d)
                 
                 # decoupling modes
                 if self.decpl_wd == None:
@@ -630,9 +626,11 @@ class common_sets():
                                          
             else:
                 # m_t, g_t equal for higher levels
-                torch._foreach_mul_(gsmthpl,0)
-                torch._foreach_add_(gsmthpl,g_t)
-                m_t = torch._foreach_mul(g_t,1)
+                # torch._foreach_mul_(gsmthpl,0)
+                # torch._foreach_add_(gsmthpl,g_t)
+                # m_t = torch._foreach_mul(g_t,1)
+                #
+                m_t, gsmthpl = self.lpf.compute(in_t=g_t, x=gsmthpl, beta=self.dev_beta_i, step=step, mix=True, beta_d=self.dev_beta_d)
                               
             # normalized input  
             if self.autolr is not None:       
@@ -707,7 +705,6 @@ class common_sets():
                              
                 # surrogate approx.
                 ewg_t = m_t[rpl].mul(w_t[rpl])
-                # ewg_t = g_t[rpl].mul(w_t[rpl])    
       
                 # optional. pre rcf smoothing before averaging
                 # ewg_t.mul_(a_t)
@@ -725,9 +722,7 @@ class common_sets():
                 wrpl = [ allist[rpl] for allist in w_t]
                 lrarpl = [ allist[rpl] for allist in lr_avga]               
                 
-                ewg_t = torch._foreach_mul(m_t[rpl],wrpl)
-                # ewg_t = torch._foreach_mul(g_t[rpl],wrpl)
-                
+                ewg_t = torch._foreach_mul(m_t[rpl],wrpl)                
                     
                 # optional. pre rcf smoothing before averaging
                 # torch._foreach_mul_(ewg_t, a_t)
@@ -810,7 +805,7 @@ class AutoSGM(Optimizer):
     '''
     r"""Implements Automatic Stochastic Gradient Method
     
-    AutoSGM is a unified learning framework for the gradient method. Popular optimizers like Adam, SGD are specific cases.
+    AutoSGM is a unified learning framework for the gradient method used in deep learning. Popular optimizers like Adam, SGD are specific cases.
     
     Args:
         params (iterable): iterable of parameters to optimize or dicts defining
@@ -1051,7 +1046,7 @@ class AutoSGM(Optimizer):
                     
                     state['step'] = torch.tensor(0, dtype=torch.float, device=p.device)
                     
-                    dfac = 0.001 # or 0.01
+                    dfac = 0.1 # or 0.001, 0.01
                         
                     state['levels'] = dict()
                     for pl in range(group['p']):
@@ -1080,7 +1075,7 @@ class AutoSGM(Optimizer):
                             state['levels'][f'{lev}']['weight_smth'] = (dfac**(pl-1))*group['lr_init']*torch.ones_like(p.real, memory_format=torch.preserve_format, device=p.device)    
                                                                 
                         # - only at the last level.          
-                        if lev == group['p']:                       
+                        if lev == group['p']:   # (dfac**pl)             
                             state['levels'][f'{lev}']["lr_avga"] = (dfac**pl)*group['lr_init']*torch.ones_like(p.real, memory_format=torch.preserve_format, device=p.device)        
                         else:
                             state['levels'][f'{lev}']["lr_avga"] = None
@@ -1129,9 +1124,9 @@ class AutoSGM(Optimizer):
                   # - only for the last level.    
                   lr_avga_llist.append(state['levels'][f'{lev}']['lr_avga'])            
                   
-                #   if lev == 1 and group['autowd'] is not None:        
-                #     wd_param_llist.append(state['levels'][f'{lev}']['wd_param'])    
-                         
+                  #   if lev == 1 and group['autowd'] is not None:        
+                  #     wd_param_llist.append(state['levels'][f'{lev}']['wd_param'])    
+                            
                   # - (history stores, mean and second moment for alpha_hat_t.)
                   lrm_save_llist.append(state['levels'][f'{lev}']['lr_m_save'])
                   lrsq_save_llist.append(state['levels'][f'{lev}']['lr_sq_save'])             
@@ -1392,16 +1387,20 @@ def _multi_tensor_sgm(com_sets:common_sets,
             smthval = com_sets.grader(step_this, pl, dev_grads, dev_grads_smth, dev_grads_var, dev_grad_in_t, dev_wt, wdcte_t)
             m_t.append(smthval)                 
         # 
+        a_t = 1
         for pl in range(levels):
+            if pl == 0:  
+                a_t = af_t
+            else: a_t = 1
             grad_in_pl = [allist[pl] for allist in dev_grad_in_t]
             torch._foreach_zero_(grad_in_pl)
-            torch._foreach_add_(grad_in_pl, m_t[pl]) 
+            torch._foreach_add_(grad_in_pl, torch._foreach_mul(m_t[pl],a_t)) 
         #::end trace
 
         # - FLOW: bottom -> top node
         for rpl in range(levels-1, -1, -1):
-            if rpl != 0: a_t = 1
-            else: a_t = 1*af_t
+            if rpl == 0:  
+                a_t = af_t
             
             # compute step-size or lr.
             if rpl == levels-1:
