@@ -74,7 +74,7 @@ optimizer = aSGM(mdl.parameters(), lr_init=5e-4, spe=len(train_dataloader), rest
 
 `spe` (int, optional): means steps per epoch and refers to the number of batches which is the data-size divided by batch-size. Defaults to `1` if not specified. Helps to detect, when the learning regime has enter a new epoch from a new iteration step. Inactive if `restarts` is `False`.
 
-`movwin` indicates the initial window (in epochs) of a moving raised cosine lowpass filter. Defaults to `1`. The moving window restarts every movwin epoch, if `movwin_upfact` is set to 1. Inactive if `restarts` is `False`.
+`movwin` indicates the initial window (in epochs) of a moving raised cosine lowpass filter. Defaults to `1`. The moving window restarts every movwin epoch(s), if `movwin_upfact` is set to 1. Inactive if `restarts` is `False`.
 
 More possible options are documented in [opts/autosgml](opts/autosgml.py). 
 Some of the options, might likely need not be changed from the defaults.
