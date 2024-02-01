@@ -1,40 +1,41 @@
-# AutoSGM
-Implementation(s) of AutoSGM: Automatic (Stochastic) Gradient Method. ```output = AutoSGM{input}```
+# AutoSGM : A Unified Lowpass Regularizing Framework for Accelerated Learning
+Automatic (Stochastic) Gradient Method is a unifying framework for accelerated SGM implementations (Polyak's Heavy Ball (PHB), Nesterov's Accelerated Gradient (NAG), Adaptive Moment Estimation (Adam)). 
+
+It explains observed acceleration in the SGM as the consequence of lowpass smoothing and approximating an optimal choice of step-size (which leads to normalized gradients). This digital structure leads to many implementations, as seen in the deep learning literature.
+
+In this framework an artificial neural network (a well-defined differentiable function) is a gradient-generating function or system, and the SGM is a control function or system.
+
+With this framework, there is only one (stochastic) gradient method (SGM), with different approaches or metrics to setting-up the step-size `alpha_t` parameter and smoothing the gradient by various lowpass filter implementations `E_t`,. The result is the different momentum-based SGD variants in the literature.
+
+This repo. contains implementation(s) of AutoSGM: ```output = AutoSGM{input}```
 
 Expected `input` is a first-order gradient. 
 `output` is an estimate of each parameter in an (artificial) neural network. 
 
-An artificial neural network (a well-defined differentiable function) is a gradient-generating function or system.
-
 <img src="./cntrlblk.svg" width="800">   
 
 ```
-  input <- Et{Dt{-g}} or Dt{Et{-g}}
-  state <-  It{state,input,alpha_t} := state + alpha_t*input
-  output <- Et{state}
+  input <- E_t{-g}
+  state <- I_t{state,input,alpha_t} := state + alpha_t*input
+  output <- E_t{state} // optional
 ```
-With this framework, we only have one gradient method, with different approaches or metrics to setting-up the step-size `alpha_t` parameter and filtering parameters for `Et` and `Dt`, which leads to different momentum-based SGD variants in the literature.
 
-## Unified Framework  
-AutoSGM is an accelerated learning framework which contains: 
+This accelerated framework attempts to provide a clearer understanding of the three practical accelerated learning variants of the (Stochastic) Gradient Method (SGM), namely: *Polyak's Heavy ball*, *Nesterov Accelerated Gradient*, *Adaptive Moment Estimation*. 
 
-+ an active lowpass filtering component `Et` regularizing its input. 
-
-+ optional time-differencing or highpass filtering in a `Dt` component. 
++ an active smoothing (lowpass) component `E_t` regularizing the gradient generating system. 
 
 + a proportional component `alpha_t`.
 
-+ a time-integration `It` component. 
++ a time-integration `I_t` component. 
 
-+ optional lowpass filtering component `Et `at its output.
++ optional averaging (lowpass) component `E_t `at its output.
 
-This framework attempts to provide a clearer understanding of the three practical accelerated learning variants of the (Stochastic) Gradient Method (SGM), namely: *Polyak's Heavy ball*, *Nesterov Accelerated Gradient*, *Adaptive Moment Estimation* by presenting AutoSGM as their unifying representation for accelerated learning.
 
 ### Basic signal-processing and control knowledge: 
 
-+ the time-differencing in the `Dt` component at the input is most always sensitive to input noise, so should usually be turned off.
++ the time-differencing, D_t, such as used in NAG is most always sensitive to input noise, so should usually be turned off.
 
-+ the lowpass filtering `Et` component at the output often adds unnecessary delay to the output estimates, so should usually be turned off.
++ the `E_t` at the output often can add unnecessary delay to the output estimates, so should usually be turned off or implemented cleverly to act as an ensemble averaging.
 
 ## Dependencies
 PyTorch. Numpy. Peek in the [requirements.txt](requirements.txt) file.
@@ -65,24 +66,31 @@ import opts.autosgml as AutoSGM
 ```
 ****
 
-Using PyTorch, say you have constructed a neural network called `mmn`, 
-you can then: call an instance of the loaded AutoSGM, pass in the parameters of the model `mmn.parameters()`, and set other options.
+Using PyTorch, say you have constructed a neural network called `mdl`, 
+you can then: call an instance of the loaded AutoSGM, pass in the parameters of the model `mdl.parameters()`, and set other options.
 ```
-optimizer = AutoSGM(mnn.parameters(), levels=2, foreach=True)
-optimizer = AutoSGM(mnn.parameters(), restarts=True, spe=len(train_dataloader))
+optimizer = AutoSGM(mdl.parameters(), levels=3)
+optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, spe=len(train_dataloader), restarts=True, movwin=30)
 ```
+`levels` (int, optional): number of learning rates used. Defaults to `1`
+
+`restarts` (bool, optional): use a raised cosine lowpass filter function to shape the gradient (default: False).
+
 `spe` (int, optional): means steps per epoch and refers to the number of batches which is the data-size divided by batch-size. Defaults to `1` if not specified. Helps to detect, when the learning regime has enter a new epoch from a new iteration step. Inactive if `restarts` is `False`.
 
-`restarts` (bool, optional): use a raised cosine lowpass filter function to shape the learning-rate (default: False).
+`movwin` indicates the initial window (in epochs) of a moving raised cosine lowpass filter. Defaults to `1`, restarting every epoch, if not specified. Inactive if `restarts` is `False`.
 
-<!-- `movwin` indicates the successive frequency (in epochs) of restarting a raised cosine lowpass filter generating the learning rates. Defaults to `1`, restarting every epoch, if not specified. Inactive if `restarts` is `False`. -->
+More possible options are documented in the [opts](opts/autosgml) directory. 
+Many of the options, might likely need not be changed from the defaults.
 
-More possible options are documented in each AutoSGM implementations in the [opts](opts/) directory. 
-Most options likely need not be changed from their defaults.
-
-For instance, the code snippet below disables the automatic parameter iteration dependent learning rate and uses a single constant learning rate value of `lr_init=2e-3` which is the same as running Adam.
+For instance, to run Adam (an approximation of the optimal step-size), the code snippet below disables the iteration dependent learning rate for each parameter and uses a single initial constant learning rate value of `lr_init=5e-4` .
 ```
-optimizer = AutoSGM(mnn.parameters(), lr_init=2e-3, autolr=False)
+optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, autolr=False)
+
+```
+For instance, the code snippet below disables the optimal step-size approximation for each parameter and uses a single initial constant learning rate value of `lr_init=5e-4`.
+```
+optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, autolr=None)
 ```
 <!-- self.sgm = AutoSGM(self.parameters(), 
                 lr_init=cfgs["ss_init"], 
