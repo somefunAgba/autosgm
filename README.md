@@ -29,7 +29,7 @@ Expected `input` is a first-order gradient.
 + optional averaging (lowpass) component `E_t `at its output.
 ### Basic signal-processing and control knowledge: 
 
-+ the time-differencing, D_t, such as used in NAG is most always sensitive to input noise, so should usually be turned off.
++ the time-differencing, D_t, such as used in *NAG* is most always sensitive to input noise, so should usually be turned off.
 
 + the `E_t` at the output often can add unnecessary delay to the output estimates, so should usually be turned off or implemented cleverly to act as an ensemble averaging.
 
@@ -76,10 +76,10 @@ optimizer = aSGM(mdl.parameters(), lr_init=5e-4, spe=len(train_dataloader), rest
 
 `movwin` indicates the initial window (in epochs) of a moving raised cosine lowpass filter. Defaults to `1`. The moving window restarts every movwin epoch, if `movwin_upfact` is set to 1. Inactive if `restarts` is `False`.
 
-More possible options are documented in [opts/autosgml](opts/autosgml). 
+More possible options are documented in [opts/autosgml](opts/autosgml.py). 
 Some of the options, might likely need not be changed from the defaults.
 
-For instance, to run Adam (an approximation of the optimal step-size), the code snippet below disables the iteration dependent learning rate for each parameter and uses a single initial constant learning rate value of `lr_init=5e-4` .
+For instance, to run *Adam* (an approximation of the optimal step-size), the code snippet below disables the iteration dependent learning rate for each parameter and uses a single initial constant learning rate value of `lr_init=5e-4` .
 ```
 optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, autolr=False)
 
