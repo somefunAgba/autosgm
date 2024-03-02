@@ -156,12 +156,6 @@ class LPF():
                 # instead of mode=2, use if init x_t = 0
                 (x.mul_(beta_t)).add_(in_t)
                 out_t = x*(one_minus_beta_t/one_minus_beta_t_pow_t)     
-
-            elif mode == 2: # exponential. (stable if 0 \le \beta < 1) 
-                # forward:
-                # instead of mode=1, use if init x_t not 0
-                (x.mul_(beta_t)).add_(in_t)
-                out_t = x*(one_minus_beta_t)  
                 
             elif mode == 3: # exponential. (stable if 0 \le \beta < 1) k \to infty
                 # instead of mode=4, use if init x_t is likely not 0
@@ -202,12 +196,6 @@ class LPF():
                 torch._foreach_mul_(x, beta_t)
                 torch._foreach_add_(x, in_t)
                 out_t = torch._foreach_div(torch._foreach_mul(x, one_minus_beta_t),one_minus_beta_t_pow_t)      
-
-            elif mode == 2: # exponential. (stable if 0 \le \beta < 1)  
-                # forward:
-                torch._foreach_mul_(x, beta_t)
-                torch._foreach_add_(x, in_t)
-                out_t = torch._foreach_mul(x, one_minus_beta_t)  
                                
             elif mode == 3: # exponential. (stable if 0 \le \beta < 1) k \to infty
                 # forward:
@@ -520,11 +508,7 @@ class common_sets():
                 grad_lev[pl].mul_(0).add_(-grad_in_lev_t1[pl-1].mul(grad_lev[pl-1]))
             g_t = 1*grad_lev[pl]              
             
-            if pl == 0:   
-                if self.dev_beta_o > 0:                              
-                    # patch for gradient value, if weight value is smoothed
-                    g_t = self.lpf.patch(g_t,beta=self.dev_beta_o,step=step, mode=3) 
-                
+            if pl == 0:
                 # weight decay term: (l2-regularization)
                 ge_t = w_lev[pl].mul(wd_cte_t)
                 
@@ -532,7 +516,8 @@ class common_sets():
                 if self.decpl_wd == False or self.decpl_wd == None:
                     g_t.add_(ge_t)
                 elif self.decpl_wd:
-                    w_lev[pl].sub_(ge_t*a_t)                
+                    ge_t.mul_(a_t)
+                    w_lev[pl].sub_(ge_t)                
                               
             # gradient's variance/power
             if self.autolr is not None:
@@ -542,16 +527,15 @@ class common_sets():
                             
             # smooth gradient input [lowpass]
             if pl == 0:  
-                
                 # decoupling modes
                 if self.decpl_wd == False or self.decpl_wd == True:
                     gin_t = g_t
                 elif self.decpl_wd == None:
-                    gin_t = g_t.sub(ge_t) 
+                    gin_t = 1*grad_lev[pl]
                     
                 # current smooth value  
                 # with: optional mix or add a [highpass: time-difference value] to the gradient 
-                m_t, grad_smth_lev[pl] = self.lpf.compute(in_t=gin_t, x=grad_smth_lev[pl], beta=self.dev_beta_i, step=step, mix=False, beta_d=self.dev_beta_d)
+                m_t, grad_smth_lev[pl] = self.lpf.compute(in_t=gin_t, x=grad_smth_lev[pl], beta=self.dev_beta_i, step=step, mix=True, beta_d=self.dev_beta_d)
                 
                 # decoupling modes
                 if self.decpl_wd == None:
@@ -587,8 +571,7 @@ class common_sets():
                 
                 torch._foreach_mul_(gpl,0)
                 torch._foreach_add_(gpl, torch._foreach_mul(gpl_m1_t,torch._foreach_neg(gpl_m1_t1)))
-                
-                
+                            
             g_t = torch._foreach_mul(gpl,1)
             
             if pl == 0:  
@@ -601,7 +584,7 @@ class common_sets():
                 # decoupling modes
                 if self.decpl_wd == False or self.decpl_wd == None:
                     torch._foreach_add_(g_t, ge_t)   
-                elif self.decpl_wd:
+                elif self.decpl_wd:                
                     torch._foreach_mul_(ge_t, a_t)
                     torch._foreach_sub_(wpl, ge_t)                    
                            
@@ -617,8 +600,8 @@ class common_sets():
                 if self.decpl_wd == False or self.decpl_wd == True:
                     gin_t = g_t
                 elif self.decpl_wd == None:
-                    gin_t = torch._foreach_sub(g_t, ge_t)
-                                                           
+                    gin_t = torch._foreach_mul(gpl, 1)
+                                         
                 # current smooth value 
                 # with: optional mix or add a [highpass: time-difference value] to the gradient 
                 m_t, gsmthpl = self.lpf.compute(in_t=gin_t, x=gsmthpl, beta=self.dev_beta_i, step=step, mix=True, beta_d=self.dev_beta_d)
@@ -633,7 +616,6 @@ class common_sets():
                 torch._foreach_add_(gsmthpl,g_t)
                 m_t = torch._foreach_mul(g_t,1)
                 #
-                # m_t, gsmthpl = self.lpf.compute(in_t=g_t, x=gsmthpl, beta=self.dev_beta_i, step=step, mix=True, beta_d=self.dev_beta_d)
                               
             # normalized input  
             if self.autolr is not None:       
@@ -649,7 +631,7 @@ class common_sets():
         return m_t
   
     # Back Trace SGM input for next iteration
-    def back_grade(self, rpl, grad_in_t, m_t, a_t):
+    def back_grade(self, rpl, grad_in_t, m_t, a_t=1):
         '''
         store current SGM (smooth) gradient input for the next iteration
         '''
@@ -666,10 +648,11 @@ class common_sets():
         a state-space function: digital integration
         '''
         # [optional] rcf smoothing, a_t 
-        if not self.lpf.tensor_lists:                      
+        if not self.lpf.tensor_lists:                   
             w_t[rpl].addcmul_(m_t[rpl].mul_(a_t), alpha_hat_t, value=self.dev_fone)
         elif self.lpf.tensor_lists:
             wrpl = [ allist[rpl] for allist in w_t]
+            #
             torch._foreach_mul_(m_t[rpl], alpha_hat_t)
             torch._foreach_mul_(m_t[rpl], a_t*self.dev_fone)
             torch._foreach_add_(wrpl, m_t[rpl])
@@ -719,7 +702,7 @@ class common_sets():
                 torch._foreach_add_(param, wrplin)   
    
     # Compute lr (gain)
-    def lr_compute(self, autolr, step, rpl, m_t, w_t, lr_avga, w_str, a_t=1):# -> Tensor | Any | List[Tensor]:
+    def lr_compute(self, autolr, step, rpl, m_t, w_t, lr_avga, w_str, w_str2, a_t=1):# -> Tensor | Any | List[Tensor]:
         '''
         computes an iteration-dependent learning rate that approximates an optimal choice of step-size.
         '''
@@ -734,13 +717,24 @@ class common_sets():
 
             if not self.lpf.tensor_lists:
                 
-                # est. for star.
-                wvsq_t = m_t[rpl].mul(m_t[rpl]).mul(w_t[rpl])
-                w_ast, w_str[rpl] = self.lpf.compute(in_t=wvsq_t, x=w_str[rpl], beta=self.dev_ssbeta, step=step, mode=self.ssmode)
-                             
-                # surrogate approx.
-                ewg_t = m_t[rpl].mul(w_t[rpl]-w_ast)
+                wg_t = (w_t[rpl]).mul(m_t[rpl])
+                # ewg_t = wg_t
                 
+                # average
+                wstrn_t, w_str[rpl] = self.lpf.compute(in_t=wg_t, x=w_str[rpl], beta=self.dev_ssbeta, step=step, mode=self.ssmode, epp=2*self.fone)
+                # average
+                wstrd_t, w_str2[rpl] = self.lpf.compute(in_t=m_t[rpl], x=w_str2[rpl], beta=self.dev_ssbeta, step=step, mode=self.ssmode, epp=2*self.fone)
+                                
+                # optional
+                ct = m_t[rpl].mul(a_t)
+                wstrn_t.mul_(ct)
+                wstrd_t.mul_(ct).add_(self.dev_eps)
+                wlcl = wstrg_t.div(wstrd_t)
+                #
+                ewg_t = (w_t[rpl].sub(wlcl)).mul_(m_t[rpl])
+                
+                if rpl != 0: 
+                    ewg_t.mul_(a_t)                      
                 
                 # average
                 lrat, lr_avga[rpl] = self.lpf.compute(in_t=ewg_t, x=lr_avga[rpl], beta=self.dev_ssbeta, step=step, mode=self.ssmode)  
@@ -753,16 +747,29 @@ class common_sets():
                 wrpl = [ allist[rpl] for allist in w_t]
                 lrarpl = [ allist[rpl] for allist in lr_avga]         
                 wstrpl = [ allist[rpl] for allist in w_str]
+                wstrpl2 = [ allist[rpl] for allist in w_str2]
                 
-                # est. for star.
-                wvsq_t = torch._foreach_mul(m_t[rpl],torch._foreach_mul(m_t[rpl],wrpl))
-                w_ast, wstrpl = self.lpf.compute(in_t=wvsq_t, x=wstrpl, beta=self.dev_ssbeta, step=step, mode=self.ssmode)
-                             
-                # surrogate approx.   
-                ewg_t = torch._foreach_mul(m_t[rpl],torch._foreach_sub(wrpl,w_ast))                
-                # ewg_t = torch._foreach_mul(m_t[rpl],wrpl) 
-                if rpl != 0: torch._foreach_mul_(ewg_t,a_t)                 
-                                   
+                
+                wg_t = torch._foreach_mul(wrpl,m_t[rpl])
+                # ewg_t = wg_t 
+                
+                # average
+                wstrg_t, wstrpl = self.lpf.compute(in_t=wg_t, x=wstrpl, beta=self.dev_ssbeta, step=step, mode=self.ssmode, epp=2*self.fone)
+                # average
+                wstr2g_t, wstrpl2 = self.lpf.compute(in_t=m_t[rpl], x=wstrpl2, beta=self.dev_ssbeta, step=step, mode=self.ssmode, epp=2*self.fone)
+                
+                # optional
+                # ct = torch._foreach_mul(m_t[rpl], a_t)
+                # torch._foreach_mul_(wstrg_t, ct)
+                # torch._foreach_mul_(wstr2g_t, ct)
+                torch._foreach_add_(wstr2g_t, self.dev_eps)
+                wlcl = torch._foreach_div(wstrg_t, wstr2g_t)
+                #
+                ewg_t = torch._foreach_mul(torch._foreach_sub(wrpl, wlcl), m_t[rpl])
+                
+                if rpl != 0: 
+                    torch._foreach_mul_(ewg_t, a_t)             
+                                      
                 # average
                 lrat, lrarpl = self.lpf.compute(in_t=ewg_t, x=lrarpl, beta=self.dev_ssbeta, step=step, mode=self.ssmode, epp=2*self.fone)                  
                      
@@ -855,7 +862,7 @@ class common_sets():
         return alpha_hat_t
 
     # Don't use foreach to integrate when its sparse gradient
-    def integrate_sparse(self, rpl, dev_wt, dev_wt_smth, step, params, m_t, alpha_hat_t, a_t):
+    def integrate_sparse(self, rpl, dev_wt, dev_wt_smth, step, params, m_t, alpha_hat_t, a_t=1):
         '''
         loop over all for sparse input gradients, don't use foreach.
         '''
@@ -1047,7 +1054,6 @@ class AutoSGM(Optimizer):
             since we average the whole lrs logged in an epoch by the total steps in that epoch.
         """
         
-        
         for group in self.param_groups:
           #  lev = group['p']
           for lev in range(1, self.nodes+1):
@@ -1092,6 +1098,7 @@ class AutoSGM(Optimizer):
         weight_list = []
         weight_smth_list = []
         w_str_list = []
+        w_str2_list = []
         grad_list = []
         grad_in_list = []
         grad_smth_list = []
@@ -1147,19 +1154,25 @@ class AutoSGM(Optimizer):
                                 state['levels'][f'{lev}']["lr_avga"] =(dfac**pl)*group['lr_init']*torch.ones_like(p.real, memory_format=torch.preserve_format, device=p.device) 
                                 if group['autolr']:
                                     state['levels'][f'{lev}']["w_str"] = torch.zeros_like(p.real, memory_format=torch.preserve_format, device=p.device) 
+                                    state['levels'][f'{lev}']["w_str2"] = torch.zeros_like(p.real, memory_format=torch.preserve_format, device=p.device)
                                 else:
                                     state['levels'][f'{lev}']["w_str"] = None
+                                    state['levels'][f'{lev}']["w_str2"] = None   
                                 
                             elif lev > 1:
                                 if group['autolr']:
                                     state['levels'][f'{lev}']["lr_avga"] = torch.zeros_like(p.real, memory_format=torch.preserve_format, device=p.device)
                                     state['levels'][f'{lev}']["w_str"] = torch.zeros_like(p.real, memory_format=torch.preserve_format, device=p.device) 
+                                    state['levels'][f'{lev}']["w_str2"] = torch.zeros_like(p.real, memory_format=torch.preserve_format, device=p.device) 
                                 else:
                                     state['levels'][f'{lev}']["lr_avga"] =(dfac**pl)*group['lr_init']*torch.ones_like(p.real, memory_format=torch.preserve_format, device=p.device)      
-                                    state['levels'][f'{lev}']["w_str"] = None        
+                                    state['levels'][f'{lev}']["w_str"] = None
+                                    state['levels'][f'{lev}']["w_str2"] = None        
                         else:
                             state['levels'][f'{lev}']["lr_avga"] = None
                             state['levels'][f'{lev}']["w_str"] = None
+                            state['levels'][f'{lev}']["w_str2"] = None
+
                         
                         # for wd:
                         # if lev == 1 and group['autowd'] is not None:
@@ -1178,6 +1191,7 @@ class AutoSGM(Optimizer):
                 weight_llist = []
                 weight_smth_llist = []
                 w_str_llist = []
+                w_str2_llist = []
                 grad_llist = []
                 grad_in_llist = []
                 grad_smth_llist = []
@@ -1205,7 +1219,8 @@ class AutoSGM(Optimizer):
                   
                   # - only for the last level.    
                   lr_avga_llist.append(state['levels'][f'{lev}']['lr_avga'])     
-                  w_str_llist.append(state['levels'][f'{lev}']['w_str'])                   
+                  w_str_llist.append(state['levels'][f'{lev}']['w_str'])   
+                  w_str2_llist.append(state['levels'][f'{lev}']['w_str2'])                     
                   
                   #   if lev == 1 and group['autowd'] is not None:        
                   #     wd_param_llist.append(state['levels'][f'{lev}']['wd_param'])    
@@ -1226,6 +1241,7 @@ class AutoSGM(Optimizer):
                 # - only for the last level.
                 lr_avga_list.append(lr_avga_llist)  
                 w_str_list.append(w_str_llist)
+                w_str2_list.append(w_str2_llist)
                 # - only for the first level.   
                 # wd_param_list.append(wd_param_llist)       
                 # - for all levels (stores, mean and second moment for states.)
@@ -1233,7 +1249,7 @@ class AutoSGM(Optimizer):
                 lrsq_save_list.append(lrsq_save_llist)
         
         return com_sets, has_sparse_grad, \
-                params_with_grad_list, weight_list, weight_smth_list, w_str_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps
+                params_with_grad_list, weight_list, weight_smth_list, w_str_list, w_str2_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps
         
     @_use_grad_for_differentiable
     def step(self, closure=None):
@@ -1253,21 +1269,17 @@ class AutoSGM(Optimizer):
         for group in self.param_groups:
                         
             com_sets, has_sparse_grad, \
-            params_with_grad_list, weight_list, weight_smth_list,         w_str_list, grad_list, \
+            params_with_grad_list, weight_list, weight_smth_list,         w_str_list, w_str2_list, grad_list, \
             grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps = self._init_group(group)
             
             sgm(com_sets, steps, 
                 params_with_grad_list, 
                 weight_list,
                 weight_smth_list,
-                w_str_list,
-                grad_list, 
-                grad_smth_list,
-                grad_var_list,  
-                grad_in_list,             
-                lr_avga_list, 
-                lrm_save_list,
-                lrsq_save_list,
+                w_str_list, w_str2_list,
+                grad_list, grad_smth_list,
+                grad_var_list, grad_in_list,             
+                lr_avga_list, lrm_save_list, lrsq_save_list,
                 has_sparse_grad = has_sparse_grad,
                 foreach=group['foreach'], 
                 differentiable=group['differentiable'],  
@@ -1454,7 +1466,7 @@ def use_avg_fcn(com_sets:common_sets, params: List[Tensor],
 def sgm(com_sets:common_sets, steps:List[Tensor], params: List[Tensor], 
         weight_list: List[List[Tensor]], 
         weight_smth_list: List[List[Optional[Tensor]]], 
-        w_str_list: List[List[Tensor]],
+        w_str_list: List[List[Tensor]], w_str2_list: List[List[Tensor]],
         grad_list: List[List[Tensor]], 
         grad_smth_list: List[List[Optional[Tensor]]],
         grad_var_list: List[List[Optional[Tensor]]],
@@ -1495,10 +1507,9 @@ def sgm(com_sets:common_sets, steps:List[Tensor], params: List[Tensor],
         func = _single_tensor_sgm
 
     func(com_sets, steps,
-        params, weight_list, weight_smth_list, w_str_list,
+        params, weight_list, weight_smth_list, w_str_list, w_str2_list,
         grad_list, grad_smth_list, grad_var_list, grad_in_list,
-        lr_avga_list, 
-        lrm_save_list, lrsq_save_list,
+        lr_avga_list, lrm_save_list, lrsq_save_list,
         has_sparse_grad=has_sparse_grad,        
         differentiable=differentiable,
         grad_scale=grad_scale,
@@ -1509,7 +1520,7 @@ def _single_tensor_sgm(com_sets:common_sets,
         steps: List[Tensor], params: List[Tensor], 
         weight_list: List[List[Tensor]], 
         weight_smth_list: List[List[Optional[Tensor]]], 
-        w_str_list: List[List[Tensor]],
+        w_str_list: List[List[Tensor]], w_str2_list: List[List[Tensor]],
         grad_list: List[List[Tensor]], 
         grad_smth_list: List[List[Optional[Tensor]]],
         grad_var_list: List[List[Optional[Tensor]]],
@@ -1560,10 +1571,11 @@ def _single_tensor_sgm(com_sets:common_sets,
         wdcte_t = com_sets.dev_wd_cte
         
         # - TRACE gradients: top -> bottom node
-        m_t = []
+        m_t, gin_t = [], []
         for pl in range(levels):
             smthval = com_sets.grader(step, pl, grad, grad_smth, grad_var, grad_in_t, w_t, wdcte_t, a_t)
             m_t.append(smthval) 
+            # gin_t.append(gval)
         #::end trace
 
         # - FLOW: bottom -> top node
@@ -1600,7 +1612,7 @@ def _multi_tensor_sgm(com_sets:common_sets,
         steps: List[Tensor], params: List[Tensor], 
         weight_list: List[List[Tensor]], 
         weight_smth_list: List[List[Optional[Tensor]]], 
-        w_str_list: List[List[Tensor]],
+        w_str_list: List[List[Tensor]], w_str2_list: List[List[Tensor]],
         grad_list: List[List[Tensor]], 
         grad_smth_list: List[List[Optional[Tensor]]],
         grad_var_list: List[List[Optional[Tensor]]],
@@ -1619,11 +1631,11 @@ def _multi_tensor_sgm(com_sets:common_sets,
     a_t = com_sets.rcf_cmp(steps[0])   
     
     grouped_tensors = _group_tensors_by_device_and_dtype(
-        [params, weight_list, weight_smth_list, w_str_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps])
+        [params, weight_list, weight_smth_list, w_str_list, w_str2_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps])
     
     for (device, dtype) in grouped_tensors:
         (
-            dev_params, dev_wt, dev_wt_smth, dev_wt_str,
+            dev_params, dev_wt, dev_wt_smth, dev_wt_str, dev_wt_str2,
             dev_grads,dev_grads_smth, dev_grads_var, dev_grad_in_t,
             dev_lra, dev_lrm, dev_lrsq, dev_steps
         ) = grouped_tensors[(device, dtype)] 
@@ -1647,10 +1659,11 @@ def _multi_tensor_sgm(com_sets:common_sets,
         wdcte_t = com_sets.dev_wd_cte
         
         # - TRACE gradients
-        m_t = []
+        m_t, gin_t = [], []
         for pl in range(levels):
             smthval = com_sets.grader(step_this, pl, dev_grads, dev_grads_smth, dev_grads_var, dev_grad_in_t, dev_wt, wdcte_t, a_t)
-            m_t.append(smthval)                 
+            m_t.append(smthval)
+            # gin_t.append(gval)                 
         #
         #::end trace
 
@@ -1663,7 +1676,7 @@ def _multi_tensor_sgm(com_sets:common_sets,
             # compute step-size or lr.
             if rpl == levels-1:
                 # at bottom node: base lr
-                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step_this, rpl, m_t, dev_wt, dev_lra, dev_wt_str, a_t)   
+                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step_this, rpl, m_t, dev_wt, dev_lra, dev_wt_str, dev_wt_str2, a_t)   
             else:
                 # at other nodes
                 alpha_hat_t = com_sets.assign(rpl+1, dev_wt)
