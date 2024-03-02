@@ -729,7 +729,7 @@ class common_sets():
                 ct = m_t[rpl].mul(a_t)
                 wstrn_t.mul_(ct)
                 wstrd_t.mul_(ct).add_(self.dev_eps)
-                wlcl = wstrg_t.div(wstrd_t)
+                wlcl = wstrn_t.div(wstrd_t)
                 #
                 ewg_t = (w_t[rpl].sub(wlcl)).mul_(m_t[rpl])
                 
@@ -754,16 +754,16 @@ class common_sets():
                 # ewg_t = wg_t 
                 
                 # average
-                wstrg_t, wstrpl = self.lpf.compute(in_t=wg_t, x=wstrpl, beta=self.dev_ssbeta, step=step, mode=self.ssmode, epp=2*self.fone)
+                wstrn_t, wstrpl = self.lpf.compute(in_t=wg_t, x=wstrpl, beta=self.dev_ssbeta, step=step, mode=self.ssmode, epp=2*self.fone)
                 # average
-                wstr2g_t, wstrpl2 = self.lpf.compute(in_t=m_t[rpl], x=wstrpl2, beta=self.dev_ssbeta, step=step, mode=self.ssmode, epp=2*self.fone)
+                wstrd_t, wstrpl2 = self.lpf.compute(in_t=m_t[rpl], x=wstrpl2, beta=self.dev_ssbeta, step=step, mode=self.ssmode, epp=2*self.fone)
                 
                 # optional
                 # ct = torch._foreach_mul(m_t[rpl], a_t)
-                # torch._foreach_mul_(wstrg_t, ct)
-                # torch._foreach_mul_(wstr2g_t, ct)
-                torch._foreach_add_(wstr2g_t, self.dev_eps)
-                wlcl = torch._foreach_div(wstrg_t, wstr2g_t)
+                # torch._foreach_mul_(wstrn_t, ct)
+                # torch._foreach_mul_(wstrd_t, ct)
+                torch._foreach_add_(wstrd_t, self.dev_eps)
+                wlcl = torch._foreach_div(wstrn_t, wstrd_t)
                 #
                 ewg_t = torch._foreach_mul(torch._foreach_sub(wrpl, wlcl), m_t[rpl])
                 
