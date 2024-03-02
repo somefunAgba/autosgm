@@ -887,30 +887,31 @@ class AutoSGM(Optimizer):
     Args:
         params (iterable): iterable of parameters to optimize or dicts defining
             parameter groups.
-        autolr (bool | None, optional): normalized gradient and iterative lr (default: True). Set to 'False' to get Adam (normalized gradient with a constant lr). Set to 'None' to use un-normalized gradient and constant lr.
-        decoup_wd: (bool | None, optional): weight_decay decoupling mode(default: None). Set to 'True' for full decoupling. Set to 'False' for no decoupling. Set to 'None' for partial decoupling.
+        autolr (bool | None, optional): normalized gradient and iterative lr (default: True).
+            Set to 'False' to get Adam (normalized gradient with a constant lr). Set to 'None' to use un-normalized gradient and constant lr.
+        decoup_wd: (bool | None, optional): weight_decay decoupling mode (default: None). 
+            Set to 'True' for full decoupling. Set to 'False' for no decoupling. Set to 'None' for partial decoupling.
         
         
         lr_init (float, optional): initial learning rate (default: 1e-3)
         beta_i (float, optional): input smoothing lowpass pole param. (default: 0.9).
         beta_d (float, optional): input time-differencing highpass param. (default: 0.).
         beta_e (float, optional): input averaging lowpass pole param. (default: 0.999).
-        beta_o (float, optional): output smoothing lowpass pole param. (default: 0.).
-        beta_a (int, optional): number of significant digits for averaging lowpass pole param used in the lr. (default: 6 sig. digits => 0.999999).
+        beta_o (float, optional): output smoothing/averaging lowpass pole param. (default: 0.).
+        beta_a (int, optional): number of significant digits for the averaging lowpass pole param used in the lr. (default: 6 sig. digits => 0.999999).
         eps (float, optional): a positive constant added to condition the sqrt. of the graident variance (default: 1e-8).
         weight_decay (float, optional): weight decay (L2 penalty) (default: 0).       
          
         levels (int, optional) number of levels to use in this AutoSGM implementation (default: 1).
         
-        restarts (bool, optional) use a raised cosine lowpass filter function to shape the learning-rate (default: False).
+        restarts (bool, optional) use a raised cosine window function (rcf) to shape the learning-rate (default: False).
         spe (int, optional): steps per epoch, also called number of batches = len(trainloader). Set if restarts is True (default:1).
-        movwin (int, optional): frequency width in epochs. Set >= 1 if restarts is True (default:1).
-        movwin_upfac (int, optional): frequency width upsampling factor. Set >= 1, if restarts is True (default:2).        
-        rho (float, optional): positive damping constant in [0,1] for rcf filter  (default: 1).
-        n (int, optional): rcf filter order >=1 (default: 1).          
-        a: (float, optional)  configures cosine mangnitude range
-        raised cosine (shifted chebyshev), a >= 0.5 -> gain-magnitude in [2a-1, 1]. (default: 0.5).
-        half_win: (bool|None, optional) if True: right-half window. if False: left-half window. if None: full window. (default: True).      
+        movwin (int or float, optional): frequency width in epochs. Used only if restarts is True (default:1).
+        movwin_upfac (int, optional): frequency width upsampling factor. Set >= 1. Used only, if restarts is True (default:2).        
+        rho (float, optional): positive damping constant in [0,1] for rcf. Used only, if restarts is True (default: 1).
+        n (int, optional): rcf filter order >=1. Used only, if restarts is True (default: 1).          
+        a: (float, optional)  configures mangnitude range. a >= 0.5 implies gain-magnitude in [2a-1, 1]. Used only, if restarts is True (default: 0.5).
+        half_win: (bool|None, optional) if True: right-half window. if False: left-half window. if None: full window. Used only, if restarts is True.  (default: True).      
         
         maximize (bool, optional): whether the objective is being maximized
             (default: False).
@@ -1559,6 +1560,7 @@ def _single_tensor_sgm(com_sets:common_sets,
         
         lr_avga = lr_avga_list[i]
         w_str = w_str_list[i]
+        w_str2 = w_str2_list[i]
                 
         lrm = lrm_save_list[i]
         lrsq = lrsq_save_list[i]
@@ -1587,7 +1589,7 @@ def _single_tensor_sgm(com_sets:common_sets,
             # compute step-size or lr.
             if rpl == levels-1:
                 # at bottom node: base lr
-                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step, rpl, m_t, w_t, lr_avga, w_str, a_t)        
+                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step, rpl, m_t, w_t, lr_avga, w_str, w_str2, a_t)        
             else:
                 # at other nodes
                 alpha_hat_t = com_sets.assign(rpl+1, w_t)          
