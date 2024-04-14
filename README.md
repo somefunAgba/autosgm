@@ -5,13 +5,13 @@ It makes sense of the many variants in use today.
 
 It explains observed acceleration in the SGM as the consequence of lowpass smoothing. This digital framework leads to many implementations, as seen in the deep learning literature. 
 
-It also allows to derive an optimal choice of learning rate.  *Adam* can be seen as one approximation of this optimal choice w(which leads to normalized gradients). 
+It also allows to derive an optimal choice of learning rate.  *Adam* can be seen as one approximation of this optimal choice (which leads to normalized gradients). 
 
 Learning is seen as an interconnection between a gradient-generating system like an artificial neural network (a well-defined differentiable function) with the SGM learning system or control function.
 
 <img src="./asgm_view.svg" width="800">   
 
-This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the learning rate $\alpha_t$, smoothing the gradient ${\rm g}_t$ and smoothing the gradient-generating system parameters ${\rm w}_t$ by various lowpass filter implementations $\mathbb{E}_{t,\beta}\{\cdot\}$. The result is the different momentum-based SGD variants in the literature.
+This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the learning rate $\alpha_t$, smoothing the gradient $\mathrm{g}_t$ and smoothing the gradient-generating system parameters $\mathrm{w}_t$ by various lowpass filter implementations $`\mathbb{E}_{t,\beta}\{\cdot\}`$. The result is the different momentum-based SGD variants in the literature.
 
 This repo. contains implementation(s) of AutoSGM: ${\rm w}_t = \mathcal{C}\bigl( {{\rm g}_t} \bigr)$
 
