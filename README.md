@@ -1,21 +1,25 @@
-# AutoSGM : A Unified Lowpass Regularizing Framework for Accelerated Learning
-Automatic (Stochastic) Gradient Method is a unifying framework for accelerated SGM implementations (Polyak's Heavy Ball (*PHB*), Nesterov's Accelerated Gradient (*NAG*), Adaptive Moment Estimation (*Adam*)) used in deep learning. 
+# AutoSGM : A Unifying Framework for Accelerated Learning
+Automatic (Stochastic) Gradient Method (SGM) is a framework for stochastic gradient learning that unifies (Polyak's Heavy Ball (*PHB*), Nesterov's Accelerated Gradient (*NAG*), Adaptive Moment Estimation (*Adam*)) used in deep learning. 
 
-It explains observed acceleration in the SGM as the consequence of lowpass smoothing and approximating an optimal choice of step-size (which leads to normalized gradients). This digital structure leads to many implementations, as seen in the deep learning literature. *Adam* is an approximation of the optimal choice of step-size.
+It makes sense of the many variants in use today. 
 
-In this framework an artificial neural network (a well-defined differentiable function) is a gradient-generating function or system, and the SGM is a control function or system.
+It explains observed acceleration in the SGM as the consequence of lowpass smoothing. This digital framework leads to many implementations, as seen in the deep learning literature. 
+
+It also allows to derive an optimal choice of learning rate.  *Adam* can be seen as one approximation of this optimal choice w(which leads to normalized gradients). 
+
+Learning is seen as an interconnection between a gradient-generating system like an artificial neural network (a well-defined differentiable function) with the SGM learning system or control function.
 
 <img src="./asgm_view.svg" width="800">   
 
-There is only one (stochastic) gradient method (SGM), with different approaches or metrics to setting-up the step-size `alpha_t` parameter and smoothing the gradient by various lowpass filter implementations `E_t`. The result is the different momentum-based SGD variants in the literature.
+This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the step-size $alpha_t$ parameter and smoothing the gradient $g_t$ and gradient-generating system parameters $w_t$ by various lowpass filter implementations $E_t$. The result is the different momentum-based SGD variants in the literature.
 
-This repo. contains implementation(s) of AutoSGM: ```output = AutoSGM{input}```
+This repo. contains implementation(s) of AutoSGM: $w_t = \mathcal{C}{g_t}$
 
 Expected `input` is a first-order gradient. 
 `output` is an estimate of each parameter in an (artificial) neural network. 
 
 ```
-  input <- E_t{-g}
+  input <- E_t{-g} // optional
   state <- I_t{state,input,alpha_t} := state + alpha_t*input
   output <- E_t{state} // optional
 ```
