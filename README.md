@@ -11,9 +11,9 @@ Learning is seen as an interconnection between a gradient-generating system like
 
 <img src="./asgm_view.svg" width="800">   
 
-This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the step-size $alpha_t$ parameter and smoothing the gradient $g_t$ and gradient-generating system parameters $w_t$ by various lowpass filter implementations $E_t$. The result is the different momentum-based SGD variants in the literature.
+This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the step-size $\alpha_t$ parameter and smoothing the gradient ${\rm g}_t$ and gradient-generating system parameters ${\rm w}_t$ by various lowpass filter implementations $\mathbb{E}_t\{\cdot\}$. The result is the different momentum-based SGD variants in the literature.
 
-This repo. contains implementation(s) of AutoSGM: $w_t = \mathcal{C}{g_t}$
+This repo. contains implementation(s) of AutoSGM: ${\rm w}_t = \mathcal{C}\bigl( {{\rm g}_t} \bigr)$
 
 Expected `input` is a first-order gradient. 
 `output` is an estimate of each parameter in an (artificial) neural network. 
