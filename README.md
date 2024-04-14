@@ -11,12 +11,12 @@ Learning is seen as an interconnection between a gradient-generating system like
 
 <img src="./asgm_view.svg" width="800">   
 
-This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the learning rate $\alpha_t$, smoothing the gradient $\mathrm{g}_t$ and smoothing the gradient-generating system parameters $\mathrm{w}_t$ by various lowpass filter implementations $`\mathbb{E}_{t,\beta}\{\cdot\}`$. The result is the different momentum-based SGD variants in the literature.
+This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the learning rate $\alpha_t$, smoothing the gradient $\mathrm{g}_t$ and smoothing the gradient-generating system parameters $\mathrm{w}_t$ by various lowpass filter implementations $`\mathbb{E}_{t,\beta}\{\cdot\}`$ where $0 \le \beta < 1$. The result is the different momentum-based SGD variants in the literature.
 
 This repo. contains implementation(s) of AutoSGM: ${\rm w}_t = \mathcal{C}\bigl( {{\rm g}_t} \bigr)$
 
-Expected `input` is a first-order gradient. 
-`output` is an estimate of each parameter in an (artificial) neural network. 
+Expected `input` $\mathrm{g}_t$ is a first-order gradient, 
+and `output` $\mathrm{w}_t$ is an estimate of each parameter in an (artificial) neural network. 
 
 ```math
 \begin{align}
@@ -56,7 +56,7 @@ Download or Clone with `git`.
 
 **Calling an AutoSGM implementation**
 
-Assume this repo., was directly git cloned to the root path of your project. Load an AutoSGM implementation  and name it `aSGM`. 
+Assume this repository was directly git cloned to the root path of your project. Load an AutoSGM implementation and name it `aSGM`. 
 ```
 ...
 import opts.autosgml as aSGM
@@ -64,7 +64,7 @@ import opts.autosgml as aSGM
 ```
 ****
 
-Then, say you have constructed a neural network called `mdl` with PyTorch, 
+<!-- Then, say you have constructed a neural network called `mdl` with PyTorch, 
 you can call an instance of the loaded `aSGM` by passing in the parameters of the model `mdl.parameters()`, and set other options.
 ```
 optimizer = aSGM(mdl.parameters(), levels=3)
@@ -97,7 +97,7 @@ optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, autolr=None)
                 weight_decay=cfgs['weight_decay'], join_wdec=cfgs['joinwdecay'],
                 auto_mode=cfgs["star_mode"],
                 autolr=cfgs["auto_ss"], 
-                foreach=cfgs['foreach'], fused=cfgs['fused'], lrlogstep=cfgs['lrlogstep'], down=cfgs['bayesdown']) -->
+                foreach=cfgs['foreach'], fused=cfgs['fused'], lrlogstep=cfgs['lrlogstep'], down=cfgs['bayesdown']) --> 
 
 <!-- # Supplementary Material
 
