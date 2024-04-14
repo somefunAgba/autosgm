@@ -5,7 +5,7 @@ It explains observed acceleration in the SGM as the consequence of lowpass smoot
 
 In this framework an artificial neural network (a well-defined differentiable function) is a gradient-generating function or system, and the SGM is a control function or system.
 
-<img src="./cntrlblk.svg" width="800">   
+<img src="./asgm_view.svg" width="800">   
 
 There is only one (stochastic) gradient method (SGM), with different approaches or metrics to setting-up the step-size `alpha_t` parameter and smoothing the gradient by various lowpass filter implementations `E_t`. The result is the different momentum-based SGD variants in the literature.
 
