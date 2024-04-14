@@ -11,7 +11,7 @@ Learning is seen as an interconnection between a gradient-generating system like
 
 <img src="./asgm_view.svg" width="800">   
 
-This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the learning rate $\alpha_t$, smoothing the gradient $\mathrm{g}_t$ and smoothing the gradient-generating system parameters $\mathrm{w}_t$ by various lowpass filter implementations $`\mathbb{E}_{t,\beta}\{\cdot\}`$. The result is the different momentum-based SGD variants in the literature.
+This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the learning rate $\alpha_t$, smoothing the gradient $\mathrm{g}_t$ and smoothing the gradient-generating system parameters $\mathrm{w}_t$ by various lowpass filter implementations $\mathbb{E}_{t,\beta}\bigl[\cdot\bigr]$. The result is the different momentum-based SGD variants in the literature.
 
 This repo. contains implementation(s) of AutoSGM: ${\rm w}_t = \mathcal{C}\bigl( {{\rm g}_t} \bigr)$
 
@@ -19,7 +19,8 @@ Expected `input` is a first-order gradient.
 `output` is an estimate of each parameter in an (artificial) neural network. 
 
 ```math
-\mathrm{g}_t \leftarrow \mathbb{E}_{t,\beta_i}\bigl{ \mathrm{g}_t \bigr}
+\mathrm{g}_t \leftarrow \mathbb{E}_{t,\beta_i}\bigl[ \mathrm{g}_t \bigr]\\
+\mathrm{g}_t \leftarrow \mathbb{E}_{t,\beta_i}\bigl[ \mathrm{g}_t \bigr]
 ```
 <!-- %\\
 {\rm w}_t \leftarrow \mathbb{I}_{t, \alpha_t}\{ {\rm g_t} \} \\
