@@ -19,9 +19,7 @@ Expected `input` is a first-order gradient.
 `output` is an estimate of each parameter in an (artificial) neural network. 
 
 $$
-\mathrm{g}_t \leftarrow \mathbb{E}_{t,\beta_i}\{ \mathrm{g}_t \} \\
-% {\rm w}_t \leftarrow \mathbb{I}_{t, \alpha_t}\{ {\rm g_t} \}\\
-% {\rm w}_t \leftarrow \mathbb{E}_{t,\beta_o}\{{\rm w}_t\}
+\mathrm{g}_t \leftarrow \mathbb{E}_{t,\beta_i}\{ \mathrm{g}_t \}
 $$
 
 + a active smoothing (lowpass) component $\mathbb{E}_{t, \beta}$  regularizing the gradient generating system, optionally, at both the input where $\beta= \beta_i$ and the output where $\beta= \beta_o$. 
