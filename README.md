@@ -11,31 +11,28 @@ Learning is seen as an interconnection between a gradient-generating system like
 
 <img src="./asgm_view.svg" width="800">   
 
-This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the step-size $\alpha_t$ parameter and smoothing the gradient ${\rm g}_t$ and gradient-generating system parameters ${\rm w}_t$ by various lowpass filter implementations $\mathbb{E}_t\{\cdot\}$. The result is the different momentum-based SGD variants in the literature.
+This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the learning rate $\alpha_t$, smoothing the gradient ${\rm g}_t$ and smoothing the gradient-generating system parameters ${\rm w}_t$ by various lowpass filter implementations $\mathbb{E}_{t,\beta}\{\cdot\}$. The result is the different momentum-based SGD variants in the literature.
 
 This repo. contains implementation(s) of AutoSGM: ${\rm w}_t = \mathcal{C}\bigl( {{\rm g}_t} \bigr)$
 
 Expected `input` is a first-order gradient. 
 `output` is an estimate of each parameter in an (artificial) neural network. 
 
-```
-  input <- E_t{-g} // optional
-  state <- I_t{state,input,alpha_t} := state + alpha_t*input
-  output <- E_t{state} // optional
-```
+$$
+{\rm g}_t \leftarrow \mathbb{E}_{t,\beta_i}\{ {\rm g}_t \} \\
+{\rm w}_t \leftarrow \mathbb{I}_{t, \alpha_t}\{ {\rm g_t} \}\\
+{\rm w}_t \leftarrow \mathbb{E}_{t,\beta_o}\{{\rm w}_t\}
+$$
 
-+ an active smoothing (lowpass) component `E_t` regularizing the gradient generating system. 
++ a active smoothing (lowpass) component $\mathbb{E}_{t, \beta}$  regularizing the gradient generating system, optionally, at both the input where $\beta= \beta_i$ and the output where $\beta= \beta_o$. 
 
-+ a proportional component `alpha_t`.
++ a proportional component $\alpha_t$.
 
-+ a time-integration `I_t` component. 
++ a time-integration $\mathbb{I}_{t, \alpha_t}$ component. 
 
-+ optional averaging (lowpass) component `E_t `at its output.
-### Basic signal-processing and control knowledge: 
+<!-- ### Basic signal-processing and control knowledge:  -->
 
-+ the time-differencing, D_t, such as used in *NAG* is most always sensitive to input noise, so should usually be turned off.
-
-+ the `E_t` at the output often can add unnecessary delay to the output estimates, so should usually be turned off or implemented cleverly to act as an ensemble averaging.
+<!-- + crudely implementing the time-difference operation in *NAG* promotes noise and instability. -->
 
 ## Dependencies
 Code is entirely in Python, using PyTorch. Peek in the [requirements.txt](requirements.txt) file.
