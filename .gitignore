@@ -35,3 +35,12 @@ Appendices_asgm_nips.pdf
 __init__.py
 __pycache__
 read1*.txt
+leet/
+search/
+cmlibs.py
+leet.py
+main.cpp
+sample.md
+hello.exe
+opts/*copy.py
+opts/*ff.py
