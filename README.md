@@ -1,12 +1,6 @@
 # AutoSGM : A Unifying Framework for Accelerated Learning
 Automatic (Stochastic) Gradient Method (SGM) is a framework for stochastic gradient learning that unifies (Polyak's Heavy Ball (*PHB*), Nesterov's Accelerated Gradient (*NAG*), Adaptive Moment Estimation (*Adam*)) used in deep learning. 
 
-It makes sense of the many variants in use today. 
-
-It explains observed acceleration in the SGM as the consequence of lowpass smoothing. This digital framework leads to many implementations, as seen in the deep learning literature. 
-
-It also allows to derive an optimal choice of learning rate.  *Adam* can be seen as one approximation of this optimal choice (which leads to normalized gradients). 
-
 Learning is seen as an interconnection between a gradient-generating system like an artificial neural network (a well-defined differentiable function) with the SGM learning system or control function.
 
 <img src="./asgm_view.svg" width="800">   
@@ -29,7 +23,13 @@ and `output` $\mathrm{w}_t$ is an estimate of each parameter in an (artificial) 
 
 + a time-integration $\mathbb{I}_{t, \alpha_t}$ component. 
 
-+ an optionally active smoothing (lowpass) component $\mathbb{E}_{t, \beta}$  regularizing the gradient generating system, optionally, at both the input where $\beta:= \beta_i$ and the output where $\beta := \beta_o$. 
++ an optionally active smoothing (lowpass) component $\mathbb{E}_{t, \beta}$  regularizing the gradient generating system, optionally, at both the input where $\beta:= \beta_i$ and the output where $\beta := \beta_o$.
+
+It makes sense of the many variants in use today. 
+
+It explains observed acceleration in the SGM as the consequence of lowpass smoothing. This digital framework leads to many implementations, as seen in the deep learning literature. 
+
+It also allows to derive an optimal choice of learning rate. *Adam* can be seen as one approximation of this optimal choice (normalized gradients). 
 
 <!-- ### Basic signal-processing and control knowledge:  -->
 
