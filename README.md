@@ -36,7 +36,8 @@ and `output` $\mathrm{w}_t$ is an estimate of each parameter in an (artificial) 
 <!-- + crudely implementing the time-difference operation in *NAG* promotes noise and instability. -->
 
 ## Dependencies
-Code is entirely in Python, using PyTorch. Peek in the [requirements.txt](requirements.txt) file.
+Code is entirely in Python, using PyTorch. 
+<!-- Peek in the [requirements.txt](requirements.txt) file. -->
 <!-- 
 Our code is entirely in Python, so we provide a [requirements.txt](requirements.txt) file through which using `pip` and optionally `virtualenv`, the python environment used by us can be reproduced. You may check 
 [Installing packages using pip and virtual environments](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/)

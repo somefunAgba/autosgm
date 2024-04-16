@@ -1,4 +1,4 @@
-# Common doc strings among optimizers
+# Common doc strings among pytorch's optimizer impl.
 _foreach_doc = r"""foreach (bool, optional): whether foreach implementation of optimizer
             is used. If unspecified by the user (so foreach is None), we will try to use
             foreach over the for-loop implementation on CUDA, since it is usually
@@ -24,7 +24,7 @@ _email_doc = r"""somefuno@oregonstate.edu"""
 
 from dataclasses import dataclass
 
-import torch
+import math, torch
 from torch import Tensor
 from torch.optim.optimizer import (
     Optimizer, required, 
@@ -128,6 +128,11 @@ class LPF():
         self.tensor_lists = fused or foreach
 
     @torch.no_grad()
+    def btrng(self, bt:Tensor|float, p:int=1):
+        return (1 - (10**(-p))*(1-bt)) - bt
+        
+    
+    @torch.no_grad()
     def compute(self, in_t:Tensor, x:Tensor, 
                 beta:Tensor, step:Tensor, mode:int=1, fix:bool=False, mix:bool=False, sq:bool=False, beta_d:Tensor|float=0, epp:Tensor|float=1):
         
@@ -141,6 +146,7 @@ class LPF():
             fix: add one to the iteration
             mix: shelve
             beta_d: HPF param.
+            epp: weighting order, depends on mode
 
         out_t : output at current time, t
         x : updated state for next time, t+1
@@ -202,12 +208,29 @@ class LPF():
                 out_t = 1*x   
 
             elif mode == 6: # hybrid (stable if 0 \le \beta < 1)
-                # useful for smoothing/averaging,
+                # useful for smoothing/averaging, 
+                # trusts memory as t increases
                 # forward:
-                ct = beta_t.mul(t-1)
-                (x.mul_(ct)).add_((t-ct)*in_t).div_(t)
+                b = beta_t.mul((t-1)/t)
+                (x.mul_(b)).add_((1-b)*in_t)
                 out_t = 1*x  
                 
+            elif mode == 7: # hybrid (stable if 0 \le \beta < 1)
+                # useful for smoothing/averaging, 
+                #
+                # forward:
+                b = beta_t.mul((t-1)/t)
+                (x.mul_(b)).add_((1-b)*in_t)
+                out_t = x/(1-b.pow(t))                
+            
+            elif mode == 8: # hybrid (stable if 0 \le \beta < 1)
+                # useful for smoothing/averaging, 
+                # trusts input as t increases
+                # forward:
+                b = beta_t.div(t)
+                (x.mul_(b)).add_((1-b)*in_t)
+                out_t = 1*x  
+                  
             elif mode == -1: # exponential. (as beta_t -> 1) 
                 # often: use mode = 1 instead of this. 
                 # forward:
@@ -254,15 +277,37 @@ class LPF():
                 
             elif mode == 6: # hybrid (stable if 0 \le \beta < 1)
                 # useful for smoothing/averaging,
+                # trusts memory as t increases
                 # forward:
-                ct = beta_t.mul(t-1)
-                in_t = torch._foreach_mul(in_t, t-ct)
+                # ct = beta_t.mul((1-(1/t)))
+                ct = beta_t.mul((t-1)/t)
+                in_t = torch._foreach_mul(in_t, 1-ct)
                 #
                 torch._foreach_mul_(x, ct)
                 torch._foreach_add_(x, in_t)
-                torch._foreach_div_(x, t)
-                out_t = torch._foreach_mul(x,1)  
-                
+                out_t = torch._foreach_mul(x,1) 
+                 
+            elif mode == 7: # hybrid (stable if 0 \le \beta < 1)
+                # useful for smoothing/averaging, 
+                #
+                # forward:
+                ct = beta_t.mul((t-1)/t)
+                in_t = torch._foreach_mul(in_t, 1-ct)
+                #
+                torch._foreach_mul_(x, ct)
+                torch._foreach_add_(x, in_t)
+                out_t = torch._foreach_div(x,(1-ct.pow(t)))               
+            
+            elif mode == 8: # hybrid (stable if 0 \le \beta < 1)
+                # trusts input as t increases
+                # forward:
+                ct = beta_t.div(t)
+                in_t = torch._foreach_mul(in_t, 1-ct)
+                #
+                torch._foreach_mul_(x, ct)
+                torch._foreach_add_(x, in_t)
+                out_t = torch._foreach_mul(x,1) 
+       
             elif mode == -1: # exponential. (as beta_t -> 1) 
                 # often: use mode = 1 instead of this. 
                 # forward:
@@ -530,10 +575,17 @@ class CommonSets():
         sptxt = " "
         vsltxt = "|"
         
-        infostr = f"AutoSGM info:\t [total params, d={self.est_numels}]"     
-        rststr = f"[rcw={self.rcf_cfg.win}, rho={self.rcf_cfg.rho}, n={self.rcf_cfg.n}, a={self.rcf_cfg.a}, half={self.rcf_cfg.half}, epoch-width={self.rcf_cfg.width}, upfact={self.rcf_cfg.upfact}]"
+        infostr = f"AutoSGM info:\t [total params, d={self.est_numels}]"  
+           
+        if self.rcf_cfg.auto:
+            rststr = f"[rcw={self.rcf_cfg.win}, half={self.rcf_cfg.half}, auto={self.rcf_cfg.auto}, upfact={self.rcf_cfg.upfact}, n={self.rcf_cfg.n}, l={2*self.rcf_cfg.a - 1} ]"
+        else:
+            rststr = f"[rcw={self.rcf_cfg.win}, half={self.rcf_cfg.half}, auto={self.rcf_cfg.auto}, init-width={self.rcf_cfg.width}, up={self.rcf_cfg.upfact}, n={self.rcf_cfg.n}, l={2*self.rcf_cfg.a - 1} ]"
+        
         autostr = f"[auto_lr={self.gen_cfg.autolr}, levels={self.gen_cfg.p}, init_lr={self.gen_cfg.lr_init:.5g}]"
-        filtstr = f"[lpfs. [in, var_avg, lr_avg, out, in_diff] : {self.beta_cfg.beta_i:.4g}, {self.beta_cfg.beta_e:.7g}, {self.beta_cfg.beta_ss:.9g}, {self.beta_cfg.beta_o:.4g}, {self.beta_cfg.beta_d:.4g}]"
+        
+        filtstr = f"[lpfs. [in, out, var_avg, lr_avg] : {self.beta_cfg.beta_i:.9g}, {self.beta_cfg.beta_o:.9g}, {self.beta_cfg.beta_e:.9g}, {self.beta_cfg.beta_ss:.9g}]"
+        
         othstr = f"[eps: {self.gen_cfg.eps:.4g}, weight-decay: {self.gen_cfg.wd_cte:.4g}, full-decoup: {self.gen_cfg.decpl_wd}]"
         
         strlogs = []
@@ -577,10 +629,10 @@ class CommonSets():
                               
             # gradient's variance/power
             if self.autolr is not None:
-                # beta_var = self.expwin_cmp(step, self.bte_cfg, self.dev_beta_e)
-                # v_var_t, grad_var_lev[pl] = self.lpf.compute(in_t=g_t, x=grad_var_lev[pl], beta=beta_var, step=step, sq=True)
-                beta_var = self.dev_beta_e
-                v_var_t, grad_var_lev[pl] = self.lpf.compute(in_t=g_t, x=grad_var_lev[pl], beta=beta_var, step=step, sq=True, mode=6, mix=True)
+                beta_var = self.expwin_cmp(step, self.bte_cfg, self.dev_beta_e)
+                # beta_var = self.dev_beta_e
+                v_var_t, grad_var_lev[pl] = self.lpf.compute(in_t=g_t, x=grad_var_lev[pl], beta=beta_var, step=step, sq=True)
+                
             else: # if not self.normed
                 v_var_t = grad_var_lev[pl].add(1)
                             
@@ -652,10 +704,9 @@ class CommonSets():
                            
             # gradient's variance/power
             if self.autolr is not None:
-                # beta_var = self.expwin_cmp(step, self.bte_cfg, self.dev_beta_e)
-                # v_var_t, gvarpl = self.lpf.compute(in_t=g_t, x=gvarpl, beta=beta_var, step=step, sq=True) 
-                beta_var = self.dev_beta_e
-                v_var_t, gvarpl = self.lpf.compute(in_t=g_t, x=gvarpl, beta=beta_var, step=step, sq=True, mode=6, mix=True)             
+                beta_var = self.expwin_cmp(step, self.bte_cfg, self.dev_beta_e)
+                # beta_var = self.dev_beta_e
+                v_var_t, gvarpl = self.lpf.compute(in_t=g_t, x=gvarpl, beta=beta_var, step=step, sq=True)             
             else: # if not self.normed
                 v_var_t = torch._foreach_add(gvarpl,1)
                                        
@@ -798,31 +849,19 @@ class CommonSets():
         # step_c = (((step-1) % (self.spe*self.epfreq)) + 1)     
                                                
         if autolr==True:
-            # beta_ss = self.expwin_cmp(step, self.bta_cfg, self.dev_beta_ss)
-            beta_ss = self.dev_beta_ss
+            beta_ss = self.expwin_cmp(step, self.bta_cfg, self.dev_beta_ss)
+            # beta_ss = self.dev_beta_ss
             
             if not self.lpf.tensor_lists:
 
                 wg_t = (w_t[rpl]).mul(m_t[rpl])
                 ewg_t = wg_t
                 
-                # betam_ss = self.expwin_cmp(step, self.btam_cfg, self.dev_beta_ss)
-                # # average
-                # wstrn_t, w_str[rpl] = self.lpf.compute(in_t=wg_t, x=w_str[rpl], beta=betam_ss, step=step, mode=3, epp=self.epp)
-                # # average
-                # wstrd_t, w_str2[rpl] = self.lpf.compute(in_t=m_t[rpl], x=w_str2[rpl], beta=betam_ss, step=step, mode=3, epp=self.epp)
-                                
-                # wlcl = (wstrn_t).div(wstrd_t.add(self.dev_eps))
-                # # print(wlcl)
-                
-                # # ewg_t = (wlcl.sub(w_t[rpl])).mul_(m_t[rpl])
-                # ewg_t = (w_t[rpl].sub(wlcl)).mul_(m_t[rpl])
-                
                 if rpl != 0: 
                     ewg_t.mul_(a_t)                      
                 
                 # average
-                lrat, lr_avga[rpl] = self.lpf.compute(in_t=ewg_t, x=lr_avga[rpl], beta=beta_ss, step=step, mode=6, epp=self.epp, mix=True)  
+                lrat, lr_avga[rpl] = self.lpf.compute(in_t=ewg_t, x=lr_avga[rpl], beta=beta_ss, step=step, mode=3, epp=self.epp)  
                 
                 # abs. val projection. to ensure positive rates.
                 alpha_hat_t = (lrat.abs())    
@@ -831,34 +870,16 @@ class CommonSets():
                 
                 wrpl = [ allist[rpl] for allist in w_t]
                 lrarpl = [ allist[rpl] for allist in lr_avga]         
-                wstrpl = [ allist[rpl] for allist in w_str]
-                wstrpl2 = [ allist[rpl] for allist in w_str2]
-                
-                
+
                 wg_t = torch._foreach_mul(wrpl,m_t[rpl])
                 ewg_t = wg_t
-                # ewg_t = torch._foreach_neg(wg_t)
-                
-                # betam_ss = self.expwin_cmp(step, self.btam_cfg, self.dev_beta_ss)
-                
-                # # average
-                # wstrn_t, wstrpl = self.lpf.compute(in_t=wg_t, x=wstrpl, beta=betam_ss, step=step, mode=3, epp=self.epp)
-                
-                # # average
-                # wstrd_t, wstrpl2 = self.lpf.compute(in_t=m_t[rpl], x=wstrpl2, beta=betam_ss, step=step, mode=3, epp=self.epp)
-                
-                
-                # wlcl = torch._foreach_div(wstrn_t, torch._foreach_add(wstrd_t, self.dev_eps))
-                # #
-                # ewg_t = torch._foreach_mul(torch._foreach_sub(wlcl, wrpl), m_t[rpl])
-                # ewg_t = torch._foreach_mul(torch._foreach_sub(wrpl, wlcl), m_t[rpl])
-                
+                ewg_t = torch._foreach_neg(wg_t)
                 
                 if rpl != 0: 
                     torch._foreach_mul_(ewg_t, a_t)           
                
                 # average
-                lrat, lrarpl = self.lpf.compute(in_t=ewg_t, x=lrarpl, beta=beta_ss, step=step, mode=6, epp=self.epp, mix=True)   
+                lrat, lrarpl = self.lpf.compute(in_t=ewg_t, x=lrarpl, beta=beta_ss, step=step, mode=3, epp=self.epp)   
                                 
                 # abs. val projection. to ensure positive rates.
                 alpha_hat_t = torch._foreach_abs(lrat)          
@@ -882,7 +903,10 @@ class CommonSets():
         if cfg.win:
             fone = torch.tensor(1., dtype=step.dtype, device=step.device)
             
-            denm = (self.spe)*(cfg.width)*(cfg.upfact**(cfg.cnt-1))
+            # maxiters = (self.spe)*(cfg.width)
+            maxiters = torch.ceil(2/(1-beta_cte))
+            
+            denm = maxiters*(cfg.upfact**(cfg.cnt-1))
             tc = ( (step - cfg.last_t) % (denm) ) + cfg.dn  # tc = t
             tc_end = denm 
             
@@ -909,19 +933,19 @@ class CommonSets():
             # self.epoch_movwin, first moving window width,  epochs >=1
             # self.movwin_upfact, moving window width upsampling factor
             
-            #     
-            denm = (self.spe*cfg.width)*(cfg.upfact**(cfg.cnt-1))
+            #
+            if cfg.auto:     
+                maxiters = math.ceil((2*cfg.n)/(self.gen_cfg.lr_init))
+            else: 
+                maxiters = (self.spe)*(cfg.width)
+            
+            denm = maxiters*(cfg.upfact**(cfg.cnt-1))
             tc = ((step-cfg.last_t) % denm ) + 1
             tc_end = denm
             fc = fone.mul(tc/denm) 
             
             #
-            a_t = self.lpf.rcf(freq=fc, a=cfg.a, rho=cfg.rho, n=cfg.n, rhlf_win=cfg.half)   
-            # if cfg.hybrid:
-                # a_t = self.lpf.rcf(freq=fc, a=cfg.a, rho=cfg.rho, n=2, rhlf_win=None)  
-                # b_t = self.lpf.rcf(freq=fc, a=cfg.a, rho=cfg.rho, n=1, rhlf_win=True)   
-                # a_t = 0.54*a_t + 0.46*b_t
-            # print(a_t)              
+            a_t = self.lpf.rcf(freq=fc, a=cfg.a, rho=cfg.rho, n=cfg.n, rhlf_win=cfg.half)      
             #         
             if tc == torch.floor(fone.mul(tc_end)):
                 cfg.cnt += 1
@@ -1079,44 +1103,42 @@ class AutoSGM(Optimizer):
                  autolr:Optional[bool]=True,
                  decoup_wd:Optional[bool]=None, 
                  lr_init=1e-3, spe=1, eps=1e-8, weight_decay=0, 
-                 beta_cfg:Optional[OAC]=None, 
-                 misc_cfg:Optional[OAC]=None, 
-                 rcf_cfg:Optional[OAC]=None, 
-                 bte_cfg:Optional[OAC]=None, 
-                 bta_cfg:Optional[OAC]=None,
+                 beta_cfg=(0.9,0,0.999,0.9999),
+                 rcf_cfg=(True, True, True, 30, 1, 2, 0), 
+                 batch_scale=1, lvls_scale= 0.001, lr_filt_pow=2,
+                 var_win:bool=True, lr_win:bool=True, 
+                 loglr_step: Optional[bool]=None,
                  maximize:bool=False, foreach: Optional[bool]=None, differentiable:bool=False):
         
         '''
         Inits: (Auto)SGM of p levels (levels are like layers)
         '''
-    
+        # if not hasattr(cfg, 'x'): cfg.x = 0
         # init. lowpass filter obj.
         self.lpf = LPF(foreach=foreach)
         self.nodes = levels
-        
-        if misc_cfg is None:
-            misc_cfg = OAC(down=False, lrlogstep=None, 
-                batchscaler=1,dfac=0.001)
+        if not autolr:
+            lr_win, var_win, lr_filt_pow = False, False, 1
+
+        misc_cfg = OAC(down=False, lrlogstep=loglr_step, 
+                batchscaler=batch_scale, dfac=lvls_scale)
             
-        if beta_cfg is None:
-            beta_cfg = OAC(beta_i=0.9, beta_e=0.999, 
-                           beta_o=0.1, beta_d=0, beta_ss=0.999999)
+        beta_cfg = OAC(beta_i=beta_cfg[0], beta_e=beta_cfg[2], 
+                           beta_o=beta_cfg[1], beta_ss=beta_cfg[3], beta_d=0)
         
-        # if not hasattr(rcf_cfg, 'hybrid'):
-        #     rcf_cfg.hybrid = False
+       
+        rcf_cfg = OAC(win=rcf_cfg[0], half=rcf_cfg[1], auto=rcf_cfg[2],  
+                    width=rcf_cfg[3], upfact=rcf_cfg[4],
+                    rho=1, n=rcf_cfg[5], a=0.5*(rcf_cfg[6]+1), 
+                    last_t=1, cnt=1,)
         
-        if rcf_cfg is None:
-            rcf_cfg = OAC(win=False, half=True, 
-                          width=1, upfact=2,
-                          rho=1, n=1, a=0.5, 
-                          last_t=1, cnt=1,
-                          )
-        if bte_cfg is None:
-            bte_cfg = OAC(win=False, width=2, u=1e-3, l=1e-4,
-                          last_t=1, cnt=1, upfact=1, dn=1)
-        if bta_cfg is None:
-            bta_cfg = OAC(win=False, width=2, powr=1, u=1e-4, l=1e-6,
-                          last_t=1, cnt=1, upfact=1, dn=1)
+        bte_cfg = OAC(win=var_win, powr=1,
+                      u=1-beta_cfg.beta_e, l=(0.1)*(1-beta_cfg.beta_e), 
+                      last_t=1, cnt=1, upfact=1, dn=1)
+        
+        bta_cfg = OAC(win=lr_win, powr=lr_filt_pow,
+                      u=1-beta_cfg.beta_ss, l=0.00001, 
+                      last_t=1, cnt=1, upfact=1, dn=1)
             
         defaults = dict(p=levels, autolr=autolr, lr_init=lr_init,               
                         decpl_wd=decoup_wd, eps=eps, spe=spe,weight_decay=weight_decay,                  maximize=maximize, foreach=foreach,
