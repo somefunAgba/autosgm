@@ -55,7 +55,7 @@ Download or Clone with `git`.
 
 ## PyTorch API:
 
-**Calling an AutoSGM implementation**
+### Calling the implementation
 
 Assume this repository was directly git cloned to the root path of your project. Load an AutoSGM implementation and name it `asgm`. 
 ```
@@ -64,9 +64,15 @@ import opts.autosgml as asgm
 ...
 ```
 ****
+
+### Examples
+Some examples from the [PyTorch Examples Repo.](https://github.com/pytorch/examples) have been added to demo. use cases.
+See the exs folder [to add later].
+
+***
 Possible options are documented in [opts/autosgml](opts/autosgml.py). Some of the defaults, might likely need not be changed.
 
-Assume a neural network model called `mdl` has been constructed with PyTorch.
+Given a neural network model called `mdl` has been constructed with PyTorch.
 The following examples illustrate how parameters of the model `mdl.parameters()`may be optimized or learnt with this AutoSGM implementation.
 
 ```
