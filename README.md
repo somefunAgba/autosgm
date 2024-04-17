@@ -57,7 +57,7 @@ Download or Clone with `git`.
 
 **Calling an AutoSGM implementation**
 
-Assume this repository was directly git cloned to the root path of your project. Load an AutoSGM implementation and name it `aSGM`. 
+Assume this repository was directly git cloned to the root path of your project. Load an AutoSGM implementation and name it `asgm`. 
 ```
 ...
 import opts.autosgml as asgm
