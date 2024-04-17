@@ -1027,61 +1027,75 @@ class AutoSGM(Optimizer):
     Args:
         params (iterable): iterable of parameters to optimize or dicts defining
             parameter groups.
+            
+        levels (int, optional) number of SGM levels to use (default: 1).
+        
         autolr (bool | None, optional): normalized gradient and iterative lr (default: True).
-            Set to 'False' to get Adam (normalized gradient with a constant lr). Set to 'None' to use un-normalized gradient and constant lr.
+            Set to 'False' to get Adam (normalized gradient with a constant lr). 
+            Set to 'None' to use un-normalized gradient and constant lr.
+            
         decoup_wd: (bool | None, optional): weight_decay decoupling mode (default: None). 
-            Set to 'True' for full decoupling. Set to 'False' for no decoupling. Set to 'None' for partial decoupling.
-        levels (int, optional) number of levels to use in this AutoSGM implementation (default: 1).
+            Set to 'True' for full decoupling. 
+            Set to 'False' for no decoupling. 
+            Set to 'None' for partial decoupling.
+            
         lr_init (float, optional): initial learning rate (default: 1e-3)
         
-        beta_i (float, optional): input smoothing lowpass pole param. (default: 0.9).
-        beta_d (float, optional): input time-differencing highpass param. (default: 0.).
-        beta_e (float, optional): input averaging lowpass pole param. (default: 0.999).
-        beta_o (float, optional): output smoothing/averaging lowpass pole param. (default: 0.).
-        beta_a (int, optional): number of significant digits for the averaging lowpass pole param used in the lr. (default: 6 sig. digits => 0.999999).
         eps (float, optional): a positive constant added to condition the sqrt. of the graident variance (default: 1e-8).
+        
         weight_decay (float, optional): weight decay (L2 penalty) (default: 0).       
-         
-        dfac (float, optional)
-        epow (float, optional)
-        batch_scaler (float, optional)
+                 
+        beta_cfg (tuple, optional): configures lowpass parameters (default: (0.9,0,0.999,0.9999)) => (beta_i, beta_o, beta_e, beta_a)
+            beta_i (float): smoothing lowpass pole param for input gradient.
+            beta_o (float): smoothing/averaging lowpass pole param for output parameter.
+            beta_e (float): averaging lowpass pole param. to estimate gradient's variance/moment.
+            beta_a (float): averaging lowpass pole param. to estimate lr correlation function.
         
-        restarts (bool, optional) use a raised cosine window function (rcf) to shape the learning-rate (default: False).
-        spe (int, optional): steps per epoch, also called number of batches = len(trainloader). Set if restarts is True (default:1).
-        movwin (int or float, optional): frequency width in epochs. Used only if restarts is True (default:1).
-        movwin_upfac (int, optional): frequency width upsampling factor. Set >= 1. Used only, if restarts is True (default:2).        
-        rho (float, optional): positive damping constant in [0,1] for rcf. Used only, if restarts is True (default: 1).
-        n (int, optional): rcf filter order >=1. Used only, if restarts is True (default: 1).          
-        a: (float, optional)  configures mangnitude range. a >= 0.5 implies gain-magnitude in [2a-1, 1]. Used only, if restarts is True (default: 0.5).
-        half_win: (bool|None, optional) if True: right-half window. if False: left-half window. if None: full window. Used only, if restarts is True.  (default: True).      
+        rcf_cfg (tuple, optional) use a raised cosine window for spectral smoothing (default: (True, True, True, 30, 1, 2, 0)) => (active, half_win, auto-width, width, up, order, min)
+            active (bool): use to activate or deactivate the window function. (default: True).
         
+            half_win (bool|None): full or half window (default: True).
+                if True: right-half window. 
+                if False: left-half window. 
+                if None: full window.         
+                
+            auto-width (bool): automates the initial window width using the initial lr. (default: True).        
+            
+            width (int or float): manually sets the initial window width in epochs. (default:30).
+            
+            up (int): window width increase factor >= 1. Recommended set as 1 or 2. (default:1). 
 
-
-        lrlogstep:(bool, optional) how to log learning-rates: per step (True) or per epoch (False) or don't log to make training faster (None)  (default: True).
+            order (int): rcf filter order >=1. Used only, if restarts is True (default: 2).          
+            
+            min: (float)  configures smallest mangnitude range. (default: 0).
+            
+        spe (int, optional): steps per epoch => number of batches = len(trainloader). use only if auto-width in rcf_cfg is False (default:1).
+ 
+        lr_filt_pow (float, optional): use to indicate degree of linearity of network. Set as 1, if network is linear/convex (default: 2). 
+            
+        batch_scale (float, optional): use for batch-size scaling (default:1)
+        
+        lvls_scale (float, optional): used for initializing learning rates of the higher levels (default:0.001)
+        
+        loglr_step:(bool, optional) how to log learning-rates: per step (True) or per epoch (False) or don't log to make training faster (None)  (default: True).
         
         maximize (bool, optional): whether the objective is being maximized
-            (default: False).  
-              
+            (default: False).    
+                        
         foreach (bool, optional): fast cuda operation on lists instead of looping.
+        
         differentiable (bool, optional): set if tensors can do backpropagation during learning.
 
     .. note:: 
-            The foreach and fused implementations are typically faster than   the for-loop,
-            single-tensor implementation, so we will try to default to them IF the user has
-            not specified either flag (i.e., when foreach = fused = None). For example, if
-            the user specifies True for foreach but nothing for fused, we will run the foreach
-            implementation. If the user specifies False for fused but nothing for foreach, we will
-            run the for-loop implementation. If the user specifies True for both foreach and
-            fused, we will prioritize fused over foreach. We attempt to use the fastest, so the
-            hierarchy goes fused -> foreach -> for-loop.
-    .. _AutoSGM\: A Unified Lowpass Regularization Framework for Accelerated Learning
+            foreach and fused implementations are typically faster than the for-loop, single-tensor implementation. We attempt to use the fastest, so the hierarchy goes foreach -> for-loop.
+    .. _AutoSGM\: A Unified Framework for Accelerated Learning
         paper link here.
     
     """.format(maximize=_maximize_doc, foreach=_foreach_doc, differentiable=_differentiable_doc) + r"""
     Example:
         >>> # xdoctest: +SKIP
         >>> from opts.autosgml import AutoSGM
-        >>> optimizer = AutoSGM(model.parameters(), levels=2, foreach=True)
+        >>> optimizer = AutoSGM(model.parameters(), weight_decay=5e-4)
         >>> ....
         >>> ....
         >>> optimizer.zero_grad()
@@ -1092,8 +1106,9 @@ class AutoSGM(Optimizer):
             Below is jsut one implementation. There can be any number of specialized implementations, the structure or idea remains the same.
         .. math::
             \begin{aligned}
-            v_{t} &= E_t{g_t}
-            w_{t} &= w_{t-1} - \alpha_{t}*F_{t}*v_{t}
+            v_t &= E{g_t}
+            x_t &= x_{t-1} - \alpha_{t}*F_{t}*v_{t}
+            w_t &= E{x_t}
             \end{aligned}
             
         where :math:`w`, denote the parameters to adapt, :math:`g` is its gradient, :math:`F*v`, is its smooth gradient by lowpass-filtering.
@@ -1102,23 +1117,21 @@ class AutoSGM(Optimizer):
     def __init__(self, params, *, levels=1, 
                  autolr:Optional[bool]=True,
                  decoup_wd:Optional[bool]=None, 
-                 lr_init=1e-3, spe=1, eps=1e-8, weight_decay=0, 
+                 lr_init=1e-3, eps=1e-8, weight_decay=0, 
                  beta_cfg=(0.9,0,0.999,0.9999),
                  rcf_cfg=(True, True, True, 30, 1, 2, 0), 
-                 batch_scale=1, lvls_scale= 0.001, lr_filt_pow=2,
-                 var_win:bool=True, lr_win:bool=True, 
-                 loglr_step: Optional[bool]=None,
-                 maximize:bool=False, foreach: Optional[bool]=None, differentiable:bool=False):
+                 spe=1, lr_filt_pow=2, batch_scale=1, lvls_scale= 0.001, 
+                 loglr_step:Optional[bool]=None,
+                 maximize:bool=False, foreach:Optional[bool]=None, differentiable:bool=False):
         
         '''
-        Inits: (Auto)SGM of p levels (levels are like layers)
+        Inits: (Auto)SGM of p levels (think of levels like layers)
         '''
         # if not hasattr(cfg, 'x'): cfg.x = 0
         # init. lowpass filter obj.
         self.lpf = LPF(foreach=foreach)
         self.nodes = levels
-        if not autolr:
-            lr_win, var_win, lr_filt_pow = False, False, 1
+        lr_win, var_win = autolr, autolr
 
         misc_cfg = OAC(down=False, lrlogstep=loglr_step, 
                 batchscaler=batch_scale, dfac=lvls_scale)

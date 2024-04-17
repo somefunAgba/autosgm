@@ -60,37 +60,41 @@ Download or Clone with `git`.
 Assume this repository was directly git cloned to the root path of your project. Load an AutoSGM implementation and name it `aSGM`. 
 ```
 ...
-import opts.autosgml as aSGM
+import opts.autosgml as asgm
 ...
 ```
 ****
+Possible options are documented in [opts/autosgml](opts/autosgml.py). Some of the defaults, might likely need not be changed.
 
-<!-- Then, say you have constructed a neural network called `mdl` with PyTorch, 
-you can call an instance of the loaded `aSGM` by passing in the parameters of the model `mdl.parameters()`, and set other options.
-```
-optimizer = aSGM(mdl.parameters(), levels=3)
-optimizer = aSGM(mdl.parameters(), lr_init=5e-4, spe=len(train_dataloader), restarts=True, movwin=30)
-```
-`levels` (int, optional): number of learning rates used. Defaults to `1`
-
-`restarts` (bool, optional): use a raised cosine lowpass filter function to shape the gradient (default: False).
-
-`spe` (int, optional): means steps per epoch and refers to the number of batches which is the data-size divided by batch-size. Defaults to `1` if not specified. Helps to detect, when the learning regime has enter a new epoch from a new iteration step. Inactive if `restarts` is `False`.
-
-`movwin` indicates the initial window (in epochs) of a moving raised cosine lowpass filter. Defaults to `1`. The moving window restarts every movwin epoch(s), if `movwin_upfact` is set to 1. Inactive if `restarts` is `False`.
-
-More possible options are documented in [opts/autosgml](opts/autosgml.py). 
-Some of the options, might likely need not be changed from the defaults.
-
-For instance, to run *Adam* (an approximation of the optimal step-size), the code snippet below disables the iteration dependent learning rate for each parameter and uses a single initial constant learning rate value of `lr_init=5e-4` .
-```
-optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, autolr=False)
+Assume a neural network model called `mdl` has been constructed with PyTorch.
+The following examples illustrate how parameters of the model `mdl.parameters()`may be optimized or learnt with this AutoSGM implementation.
 
 ```
-For instance, the code snippet below disables the optimal step-size approximation for each parameter and uses a single initial constant learning rate value of `lr_init=5e-4`.
+optimizer = asgm(mdl.parameters(), weight_decay=5e-4)
+```
+
+```
+optimizer = asgm(mdl.parameters(), levels=2, lr_init=5e-4, weight_decay=5e-4)
+```
+
+```
+optimizer = asgm(mdl.parameters(), lr_init=1e-4, beta_cfg=(0.9,0.1,0.999,0.9999))
+```
+
+```
+optimizer = asgm(mdl.parameters(), lr_init=1e-4, beta_cfg=(0.1,0.9,0.999,0.9999))
+```
+
+To run *Adam* (an approximation of the optimal step-size), the code snippet below disables the iteration dependent learning rate function and for all iteration uses a single initial constant learning rate value of `lr_init=5e-4` with a normalized gradient.
+```
+optimizer = asgm(mdl.parameters(), autolr=False, lr_init=5e-4)
+```
+
+The code snippet below disables any optimal learning-rate estimation/approximation and uses a single initial learning rate constant `lr_init=5e-4`.
 ```
 optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, autolr=None)
 ```
+
 <!-- self.sgm = AutoSGM(self.parameters(), 
                 lr_init=cfgs["ss_init"], 
                 spe=steps_per_epoch,epfreq=cfgs['epfreq'], 
