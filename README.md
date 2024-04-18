@@ -46,8 +46,8 @@ for best practices on this.
 `pip install -r requirements.txt` -->
 
 ## Getting Started (installing)
-Download or Clone with `git`.
-```
+Download or clone locally with `git`.
+```bash
 >> git clone https://github.com/somefunagba/autosgm.git
 ```
 
@@ -57,17 +57,15 @@ Download or Clone with `git`.
 
 ### Calling the implementation
 
-Assume this repository was directly git cloned to the root path of your project. Load an AutoSGM implementation and name it `asgm`. 
+Assume this repository was directly git cloned to the root path of your project. 
+```python
+from opts.autosgml import AutoSGM
 ```
-...
-import opts.autosgml as asgm
-...
-```
+This loads an AutoSGM implementation.
 ****
-
 ### Examples
-Some examples from the [PyTorch Examples Repo.](https://github.com/pytorch/examples) have been added to demo. use cases.
-See the exs folder [to add later].
+Some examples from the [PyTorch Examples Repo.](https://github.com/pytorch/examples) have been added as demo.
+See the [cases](cases) folder.
 
 ***
 Possible options are documented in [opts/autosgml](opts/autosgml.py). Some of the defaults, might likely need not be changed.
@@ -75,29 +73,29 @@ Possible options are documented in [opts/autosgml](opts/autosgml.py). Some of th
 Given a neural network model called `mdl` has been constructed with PyTorch.
 The following examples illustrate how parameters of the model `mdl.parameters()`may be optimized or learnt with this AutoSGM implementation.
 
-```
-optimizer = asgm(mdl.parameters(), weight_decay=5e-4)
-```
-
-```
-optimizer = asgm(mdl.parameters(), levels=2, lr_init=5e-4, weight_decay=5e-4)
+```python
+optimizer = AutoSGM(mdl.parameters(), weight_decay=5e-4)
 ```
 
-```
-optimizer = asgm(mdl.parameters(), lr_init=1e-4, beta_cfg=(0.9,0.1,0.999,0.9999))
-```
-
-```
-optimizer = asgm(mdl.parameters(), lr_init=1e-4, beta_cfg=(0.1,0.9,0.999,0.9999))
+```python
+optimizer = AutoSGM(mdl.parameters(), levels=2, lr_init=5e-4, weight_decay=5e-4)
 ```
 
-To run *Adam* (an approximation of the optimal step-size), the code snippet below disables the iteration dependent learning rate function and for all iteration uses a single initial constant learning rate value of `lr_init=5e-4` with a normalized gradient.
-```
-optimizer = asgm(mdl.parameters(), autolr=False, lr_init=5e-4)
+```python
+optimizer = AutoSGM(mdl.parameters(), lr_init=1e-4, beta_cfg=(0.9,0.1,0.999,0.9999))
 ```
 
-The code snippet below disables any optimal learning-rate estimation/approximation and uses a single initial learning rate constant `lr_init=5e-4`.
+```python
+optimizer = AutoSGM(mdl.parameters(), lr_init=1e-4)
 ```
+
+To use only moment estimation (an approximation of the optimal step-size), the code snippet below disables the iteration dependent learning rate function and for all iteration uses a single initial constant learning rate value of `lr_init=1e-3` with a normalized gradient.
+```python
+optimizer = AutoSGM(mdl.parameters(), autolr=False, lr_init=1e-3)
+```
+
+The code snippet below disables any optimal learning-rate estimation/approximation and uses a single initial learning rate constant `lr_init=1e-3`.
+```python
 optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, autolr=None)
 ```
 
@@ -118,7 +116,7 @@ Here in this [README.md](README.md), we provide some instructions to run the [co
 
 
 ## Disclaimer
-The code implementations and style in this repository is still undergoing active development as part of my PhD work. Feel free to raise an issue, if you detect any bug or you have any questions.
+The `code` and `style` in this repository is still undergoing `active` development as part of my `PhD` work. Feel free to raise an `issue`, if you detect any `bug` or you have any questions.
 
 
 
