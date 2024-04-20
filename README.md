@@ -18,15 +18,11 @@ and `output` $\mathrm{w}_t$ is an estimate of each parameter in an (artificial) 
 {\rm w}_t \leftarrow \mathbb{E}_{t,\beta_o}\{{\rm w}_t\}
 \end{align}
 ```
-+ a proportional component $\alpha_t$.
++ a time-integration $\mathbb{I}_{t, \alpha_t}$ component, controlled by a proportional learning rate parameter $\alpha_t$.
++ a lowpass smoothing component $\mathbb{E}_{t, \beta}$ regularizing the gradient generating system, with a lowpass parameter $\beta$, at the input where $\beta:= \beta_i$ and the output where $\beta := \beta_o$.
 
-+ a time-integration $\mathbb{I}_{t, \alpha_t}$ component. 
 
-+ an optionally active smoothing (lowpass) component $\mathbb{E}_{t, \beta}$  regularizing the gradient generating system, optionally, at both the input where $\beta:= \beta_i$ and the output where $\beta := \beta_o$.
-
-It makes sense of the many variants in use today. 
-
-It explains observed acceleration in the SGM as the consequence of lowpass smoothing. This digital framework leads to many implementations, as seen in the deep learning literature. 
+It explains observed acceleration in the SGM as the consequence of lowpass smoothing. This framework leads to many implementations, as seen in the deep learning literature. It makes sense of the many variants in use today. 
 
 It also allows to derive an optimal choice of learning rate. *Adam* can be seen as one approximation of this optimal choice (normalized gradients). 
 
