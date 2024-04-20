@@ -73,18 +73,7 @@ Possible options are documented in [opts/autosgml](opts/autosgml.py). Some of th
 Given a neural network model called `mdl` has been constructed with PyTorch.
 The following examples illustrate how parameters of the model `mdl.parameters()`may be optimized or learnt with this AutoSGM implementation.
 
-```python
-optimizer = AutoSGM(mdl.parameters(), weight_decay=5e-4)
-```
-
-```python
-optimizer = AutoSGM(mdl.parameters(), levels=2, lr_init=5e-4, weight_decay=5e-4)
-```
-
-```python
-optimizer = AutoSGM(mdl.parameters(), lr_init=1e-4, beta_cfg=(0.9,0.1,0.999,0.9999))
-```
-
+By default, this implementation, auto-tunes an initial learning rate iteratively, which in the code snippet below has been set as `lr_init=1e-3` with a normalized gradient. 
 ```python
 optimizer = AutoSGM(mdl.parameters(), lr_init=1e-4)
 ```
@@ -98,6 +87,20 @@ The code snippet below disables any optimal learning-rate estimation/approximati
 ```python
 optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, autolr=None)
 ```
+
+Also, important parameters to configure apart from the initial learning rate are the 4 `lowpass` (often called momentum) parameters in `beta_cfg`, which in order are for iteratively smoothing the gradient input, smoothing the weight output, estimating the gradient variance/moment, crudely approximating a learning-rate correlation used for smoothing and averaging. 
+
+By `smoothing`, we mean the `lowpass` filter is used to carefully filter high frequency noise components from its input signal. By `avergaing`, we mean the `lowpass` filter is used to estimate a statistical expectation function. 
+
+By default, the values in `beta_cfg` are sensible theoretical values, which should be changed depending on what works and the linearity/architecture of the neural network.
+```python
+optimizer = AutoSGM(mdl.parameters(), lr_init=1e-4, 
+beta_cfg=(0.9,0.1,0.999,0.9999))
+```
+Note that when using the first-order `lowpass` filter: For `smoothing`, the lowpass parameter is often less or equal to `0.9` but for averaging, the lowpass parameter is often greater than `0.9`. 
+
+
+
 
 <!-- self.sgm = AutoSGM(self.parameters(), 
                 lr_init=cfgs["ss_init"], 

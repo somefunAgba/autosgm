@@ -495,6 +495,7 @@ class CommonSets():
         self.lrlogstep = misc_cfg.lrlogstep
         #
         self.beta_cfg = beta_cfg
+        self.beta_cfg.beta_d = bool(self.beta_cfg.beta_d)
         #        
         self.rcf_cfg = rcf_cfg
         self.bte_cfg = bte_cfg
@@ -517,7 +518,7 @@ class CommonSets():
         self.dev_beta_i = self.beta_cfg.beta_i*fone
         self.dev_beta_e = self.beta_cfg.beta_e*fone
         self.dev_beta_o = self.beta_cfg.beta_o*fone
-        self.dev_beta_d = self.beta_cfg.beta_d*fone
+        self.dev_beta_d = self.beta_cfg.beta_d
         self.dev_eps = self.gen_cfg.eps*fone
         self.dev_wd_cte = self.gen_cfg.wd_cte*fone
         self.levels = self.p    
@@ -572,7 +573,7 @@ class CommonSets():
     def grader(self, step, pl, grad_lev, grad_smth_lev, grad_var_lev, grad_in_lev_t1, w_lev, wd_cte_t, a_t=1):
         '''
         trace gradient values for all levels (back-prop/auto-diff)
-        '''
+        '''            
         if not self.lpf.tensor_lists:
             # get nn. gradient for current level
             if pl != 0:
@@ -610,7 +611,7 @@ class CommonSets():
                 # current smooth value  
                 # with: optional mix or add a [highpass: time-difference value] to the gradient 
                 betain = self.dev_beta_i
-                m_t, grad_smth_lev[pl] = self.lpf.compute(in_t=gin_t, x=grad_smth_lev[pl], beta=betain, step=step, mix=True)
+                m_t, grad_smth_lev[pl] = self.lpf.compute(in_t=gin_t, x=grad_smth_lev[pl], beta=betain, step=step, mix=self.dev_beta_d)
 
                 # decoupling modes
                 if self.decpl_wd == None:
@@ -622,8 +623,12 @@ class CommonSets():
                 m_t = 1*g_t
                 
             # normalized input
-            if self.autolr is not None:            
-                v_sd_t = (v_var_t.add(self.dev_eps).sqrt()).add_(self.dev_eps)
+            if self.autolr is not None:
+                if self.misc_cfg.eps_mode == 2:            
+                    v_sd_t = (v_var_t.add(self.dev_eps).sqrt()).add_(self.dev_eps)
+                else:
+                    v_sd_t = (v_var_t.sqrt()).add_(self.dev_eps)
+
                 # integrator input, to be passed to upper levels 
                 (m_t).div_(v_sd_t)
                    
@@ -683,7 +688,7 @@ class CommonSets():
                                          
                 # current smooth value 
                 # with: optional mix or add a [highpass: time-difference value] to the gradient 
-                m_t, gsmthpl = self.lpf.compute(in_t=gin_t, x=gsmthpl, beta=self.dev_beta_i, step=step, mix=False)
+                m_t, gsmthpl = self.lpf.compute(in_t=gin_t, x=gsmthpl, beta=self.dev_beta_i, step=step, mix=self.dev_beta_d)
                 
                 # decoupling modes
                 if self.decpl_wd == None:
@@ -698,8 +703,11 @@ class CommonSets():
                               
             # normalized input  
             if self.autolr is not None:       
-
-                v_sd_t = torch._foreach_add(torch._foreach_sqrt(torch._foreach_add(v_var_t,self.dev_eps)), (self.dev_eps))
+                if self.misc_cfg.eps_mode == 2:
+                    v_sd_t = torch._foreach_add(torch._foreach_sqrt(torch._foreach_add(v_var_t,self.dev_eps)), (self.dev_eps))
+                else:
+                    v_sd_t = torch._foreach_add(torch._foreach_sqrt(v_var_t), (self.dev_eps))
+                
                 # integrator input, to be passed to upper levels 
                 torch._foreach_div_(m_t, v_sd_t)
                
@@ -800,7 +808,7 @@ class CommonSets():
                 torch._foreach_add_(param, wrplin)   
    
     # Compute lr (gain)
-    def lr_compute(self, autolr, step, rpl, m_t, w_t, lr_avga, w_str, w_str2, a_t=1):# -> Tensor | Any | List[Tensor]:
+    def lr_compute(self, autolr, step, rpl, m_t, w_t, lr_avga, a_t=1):# -> Tensor | Any | List[Tensor]:
         '''
         computes an iteration-dependent learning rate that approximates an optimal choice of step-size.
         '''
@@ -848,7 +856,7 @@ class CommonSets():
                 alpha_hat_t = torch._foreach_abs(lrat)          
         else:
             # use an externally supplied (typically small) linear correlation estimate or value
-            # alpha_hat_t = a_t*self.dev_lr_init   
+            # alpha_hat_t = self.dev_lr_init   
             if not self.lpf.tensor_lists:
                 alpha_hat_t = 1*lr_avga[rpl]
             else:
@@ -979,7 +987,11 @@ class CommonSets():
             self.pass_to_nn(rpl, params[i],dev_wt[i])
 
         self.lpf.tensor_lists = True
-            
+    
+    # lr scaling due to output smoothing
+    def cfactor(self, step, alpha):
+        bt = self.dev_beta_o*(1-(1/step))
+        return alpha/(1-bt)            
 
 
 # PyTorch Front   
@@ -1014,8 +1026,8 @@ class AutoSGM(Optimizer):
     def __init__(self, params, *, levels=1, 
                  autolr:Optional[bool]=True,
                  decop_wd:Optional[bool]=None, 
-                 lr_init=1e-3, eps=1e-8, weight_decay=0, 
-                 beta_cfg=(0.9, 0, 0.999, 0.9999),
+                 lr_init=1e-3,  weight_decay=0, eps=1e-8, eps_mode=2, 
+                 beta_cfg=(0.9, 0, 0.999, 0.9999), beta_d=0,
                  rcf_cfg=((False), (True,True), (1, 1, 0)), 
                  spe=1, lr_filt_pow=2, batch_scale=1, lvls_scale= 0.001, 
                  loglr_step:Optional[bool]=None,
@@ -1040,19 +1052,23 @@ class AutoSGM(Optimizer):
          set to `False` for no decoupling. 
          set to `None` for partial decoupling.
              
-         `lr_init` (`float`, optional): initial learning rate (default: `1e-3`)
+         `lr_init` (`float`, optional): used as initial learning rate value, it will be varied iteratively when `autolr` is `True`. (default: `1e-3`).
          
-         `eps` (`float`, optional): a positive constant used to condition/stabilize gradient normalization (default: `1e-8`).
+         `eps` (`float`, optional): a small positive constant used to condition/stabilize the gradient normalization operation (default: `1e-8`).
          
-         `weight_decay` (`float`, optional): weight decay (L2 penalty) (default: `0`).       
+         `eps_mode` (`int`, optional): controls how to add `eps`, once or twice. (default: `2`). expects `1` or `2`.
+         
+         `weight_decay` (`float`, optional): a small positive constant that may be used to stabilize the weight learning process, (reflects an L2 penalty). (default: `0`).       
                  
          `beta_cfg` (`tuple`, optional): configures lowpass parameters (default: `(0.9,0,0.999,0.9999)`) => (`beta_i, beta_o, beta_e, beta_a`). 
-         beta_i (`float`): smoothing lowpass pole param for input gradient. (default:`0.9`). 
-         beta_o (`float`): smoothing/averaging lowpass pole param for output parameter. (default:`0`).
-         beta_e (`float`): averaging lowpass pole param. to estimate gradient's variance/moment. (default:`0.999`).
-         beta_a (`float`): averaging lowpass pole param. to estimate lr correlation function. (default:`0.9999`).
+         beta_i (`float`): smoothing lowpass pole param for input gradient, often less or equal to `0.9`. (default:`0.9`). 
+         beta_o (`float`): smoothing/averaging lowpass pole param for output parameter, often less or equal to `0.9`. (default:`0`).
+         beta_e (`float`): averaging lowpass pole param. to estimate gradient's variance/moment, often greater than `0.9`. (default:`0.999`).
+         beta_a (`float`): averaging lowpass pole param. to estimate lr correlation function, often greater than `0.9`. (default:`0.9999`).
          
-         `rcf_cfg` (`tuple`, optional) use a raised cosine window for spectral smoothing (default: `((False),(True,True),(1, 1, 0))` => `((active), (half_win, auto_init_width), (up, order, min))`
+         `beta_d` (`int`, optional): use enhanced smoothing at input (default: `0`). expects `0` or `1`.         
+
+         `rcf_cfg` (`tuple`, optional) use a raised cosine window to spectrally smooth the input. (default: `((False),(True,True),(1, 1, 0))` => `((active), (half_win, auto_init_width), (up, order, min))`
              active (`bool`): use to activate or deactivate the window function. (default: `False`).
              half_win (`bool`|`None`): full or half window (default: `True`). if `True`: right-half window. if `False`: left-half window. if `None`: full window.         
              auto_init_width (`bool`|`int`): automates the initial window width using the `lr_init`. (default: `True`).        
@@ -1072,11 +1088,11 @@ class AutoSGM(Optimizer):
         `loglr_step`:(`bool`, optional) how to log learning-rates: per step (True) or per epoch (False) or don't log to make training faster (None)  (default: `None`).
         
         `maximize` (`bool`, optional): whether the objective is being maximized
-            (default: False).    
+            (default: `False`).    
                         
-        `foreach` (`bool`, optional): fast cuda operation on lists instead of looping.
+        `foreach` (`bool`, optional): fast cuda operation on lists instead of looping. (default: `True`). 
         
-        `differentiable` (`bool`, optional): set if tensors can do backpropagation during learning.
+        `differentiable` (`bool`, optional): set if tensors can do backpropagation during learning. this argument is not used. (default: `False`). 
 
         .. note:: 
                 foreach and fused implementations are typically faster than the for-loop, single-tensor implementation.
@@ -1089,12 +1105,11 @@ class AutoSGM(Optimizer):
         self.nodes = levels
 
         misc_cfg = OAC(down=False, lrlogstep=loglr_step, 
-                batchscaler=batch_scale, dfac=lvls_scale)
+                batchscaler=batch_scale, dfac=lvls_scale, eps_mode=eps_mode)
             
         beta_cfg = OAC(beta_i=beta_cfg[0], beta_e=beta_cfg[2], 
-                           beta_o=beta_cfg[1], beta_ss=beta_cfg[3], beta_d=0)
+                           beta_o=beta_cfg[1], beta_ss=beta_cfg[3], beta_d=beta_d)
         
-       
         rcf_cfg = OAC(win=rcf_cfg[0], half=rcf_cfg[1][0], auto=rcf_cfg[1][1],
                       upfact=rcf_cfg[2][0], rho=1, 
                       n=rcf_cfg[2][1], a=0.5*(rcf_cfg[2][2]+1), 
@@ -1178,8 +1193,8 @@ class AutoSGM(Optimizer):
         
         weight_list = []
         weight_smth_list = []
-        w_str_list = []
-        w_str2_list = []
+        # w_str_list = []
+        # w_str2_list = []
         grad_list = []
         grad_in_list = []
         grad_smth_list = []
@@ -1259,8 +1274,8 @@ class AutoSGM(Optimizer):
                 # Level Lists for this parameter
                 weight_llist = []
                 weight_smth_llist = []
-                w_str_llist = []
-                w_str2_llist = []
+                # w_str_llist = []
+                # w_str2_llist = []
                 grad_llist = []
                 grad_in_llist = []
                 grad_smth_llist = []
@@ -1288,8 +1303,8 @@ class AutoSGM(Optimizer):
                   
                   # - only for the last level.    
                   lr_avga_llist.append(state['levels'][f'{lev}']['lr_avga'])     
-                  w_str_llist.append(state['levels'][f'{lev}']['w_str'])   
-                  w_str2_llist.append(state['levels'][f'{lev}']['w_str2'])                     
+                #   w_str_llist.append(state['levels'][f'{lev}']['w_str'])   
+                #   w_str2_llist.append(state['levels'][f'{lev}']['w_str2'])                     
                   
 
                   # - (history stores, mean and second moment for alpha_hat_t.)
@@ -1308,14 +1323,14 @@ class AutoSGM(Optimizer):
                   
                 # - only for the last level.
                 lr_avga_list.append(lr_avga_llist)  
-                w_str_list.append(w_str_llist)
-                w_str2_list.append(w_str2_llist)
+                # w_str_list.append(w_str_llist)
+                # w_str2_list.append(w_str2_llist)
     
                 # - for all levels (stores, mean and second moment for states.)
                 lrm_save_list.append(lrm_save_llist)
                 lrsq_save_list.append(lrsq_save_llist)
         
-        pplists = [params_with_grad_list, weight_list, weight_smth_list, w_str_list, w_str2_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list]
+        pplists = [params_with_grad_list, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list]
         
         return com_sets, has_sparse_grad, pplists, steps
         
@@ -1350,177 +1365,6 @@ class AutoSGM(Optimizer):
         
         return loss
     
-    @torch.no_grad()
-    def use_avg(self, pick_avg=True):
-        """
-        if pick_avg is True, uses averaged weights, after learning, else
-        it resets the parameter in the network to the last iteration weight found during learning
-        """
-        for group in self.param_groups:
-            
-            com_sets = group['com_sets']        
-            params_with_grad_list = []
-            win_list = []
-            
-            for p in group['params']:
-                if p.grad is not None:
-                    params_with_grad_list.append(p)
-                    
-                    state = self.state[p]
-
-                    # Level Lists for this parameter
-                    win_llist = []
-                    
-                    # -  for all levels
-                    for lev in range(1,2):
-                        if pick_avg:
-                            win_llist.append(state['levels'][f'{lev}']['weight_smth'])  
-                        else:
-                            win_llist.append(state['levels'][f'{lev}']['weight'])      
-                    
-                    # List of Level Lists for each 
-                    # parameter with a gradient in the ANN.
-                    win_list.append(win_llist)
-            
-            use_avg_fcn(com_sets,params_with_grad_list, win_list)
-            # update state     
-        pass
- 
-    @torch.no_grad()
-    def update_bn(self, loader, model, device=None, islearning=False):
-        r""" forked from offcial pytorch swa_utils.py
-        For the model, updates BatchNorm modules:
-            running_mean, running_var buffers.
-
-        It performs one pass over data in `loader` to estimate the activation
-        statistics for BatchNorm layers in the model.
-        Args:
-            loader (torch.utils.data.DataLoader): dataset loader to compute the
-                activation statistics on. Each data batch should be either a
-                tensor, or a list/tuple whose first element is a tensor
-                containing data.
-            model (torch.nn.Module): model for which we seek to update BatchNorm
-                statistics.
-            device (torch.device, optional): If set, data will be transferred to
-                :attr:`device` before being passed into :attr:`model`.
-                
-            islearning (bool): indicates if model is still being trained with the SGM. The default is False to indicate we want to keep the new batch-norm stats.
-
-        Example:
-            >>> from autosgml import AutoSGM
-            >>> asgm = AutoSGM(model.parameters(),)
-            >>> ...
-            >>> # During learning, after a training session
-            >>> loader, model = ...
-            >>> asgm.useavg(True) # try ensembled weights
-            >>> asgm.update_bn(loader, model, device, True) # update batch-stats
-            >>> # do some train/test evaluations ...
-            >>> asgm.useavg(False) # reset to instantaneous values
-            >>> ...    
-            >>> # After learning is completed
-            >>> loader, model = ...
-            >>> asgm.useavg() # use ensembled weights
-            >>> asgm.update_bn(loader, model, device) # update batch-stats
-            >>> # do some train/test evaluations ...
-            
-
-        .. note::
-            The `update_bn` utility assumes that each data batch in :attr:`loader`
-            is either a tensor or a list or tuple of tensors; in the latter case it
-            is assumed that :meth:`model.forward()` should be called on the first
-            element of the list or tuple corresponding to the data batch.
-        """
-        betas = {}
-        means = {}
-        vars = {}
-        # For Batch Norm (BN) modules in the model
-        # reset running averages (mean and variance) 
-        # and store the BN module's averaging parameter, 
-        # which was named momentum in the official PyTorch implementation 
-        for module in model.modules():
-            if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
-                
-                if islearning:
-                    means[module] = module.running_mean
-                    vars[module] = module.running_var
-                    
-                module.running_mean = torch.zeros_like(module.running_mean)
-                module.running_var = torch.ones_like(module.running_var)
-                
-                betas[module] = module.momentum
-                
-                module.momentum = None
-                module.num_batches_tracked *= 0
-
-        # Stop this, if no BN module found
-        if not betas: return
-        
-        # Otherwise, put model in training mode
-        was_training = model.training
-        model.train()
-
-        # Use forward pass without training to
-        # recompute BN stats: one-pass over data
-        for input in loader:
-            if isinstance(input, (list, tuple)):
-                input = input[0]
-            if device is not None:
-                input = input.to(device)
-            model(input)
-
-        # Pass back the BN module's averaging parameter
-        # and return model to its previous mode
-        for module in betas.keys():
-            module.momentum = betas[module]
-            if islearning:
-                module.running_mean = means[module]
-                module.running_var = vars[module]
-                
-        model.train(was_training)
-
-   
-def use_avg_fcn(com_sets:CommonSets, params: List[Tensor], 
-        win_list: List[List[Optional[Tensor]]]):
-    
-    r""" Functional API to pass averaged weights to network after learning, else
-        it resets the parameters in the network to the last iteration weights found during learning.
-    """
-    
-    # logic to use multi_tensor: foreach, fused or single_tensor
-    if not com_sets.lpf.tensor_lists:
-        
-        for i, param in enumerate(params):
-            w_in = win_list[i]
-            # handle if complex parameters
-            if torch.is_complex(param):
-                param = torch.view_as_real(param)
-            
-            # only at first level
-            # pass update to the neural network's placeholder.
-            com_sets.pass_to_nn(0, param, w_in)
-                      
-                
-    elif com_sets.lpf.tensor_lists:
-        
-        grouped_tensors = _group_tensors_by_device_and_dtype(
-        [params, win_list])
-    
-        for (device, dtype) in grouped_tensors:
-            (dev_params, dev_wt_in) = grouped_tensors[(device, dtype)] 
-            
-            # handle complex parameters
-            params_ = [torch.view_as_real(x) 
-                    if torch.is_complex(x) else x 
-                    for x in dev_params]
-            
-            # only at first level
-            # pass update to the neural network's placeholder.
-            com_sets.pass_to_nn(0, params_, dev_wt_in)  
-            
-    else:
-        pass
-        
-       
 def sgm(com_sets:CommonSets, steps:List[Tensor], 
         pplists:List[List[List[Optional[Tensor]]]],*,
         has_sparse_grad:bool=None,
@@ -1561,7 +1405,7 @@ def _single_tensor_sgm(com_sets:CommonSets, steps: List[Tensor],
     
     assert grad_scale is None and found_inf is None
     
-    params, weight_list, weight_smth_list, w_str_list, w_str2_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list = pplists
+    params, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list = pplists
     
     dtype = params[0].dtype
     device= params[0].device
@@ -1585,8 +1429,6 @@ def _single_tensor_sgm(com_sets:CommonSets, steps: List[Tensor],
         grad_in_t = grad_in_list[i]
         
         lr_avga = lr_avga_list[i]
-        w_str = w_str_list[i]
-        w_str2 = w_str2_list[i]
                 
         lrm = lrm_save_list[i]
         lrsq = lrsq_save_list[i]
@@ -1614,7 +1456,7 @@ def _single_tensor_sgm(com_sets:CommonSets, steps: List[Tensor],
             # compute step-size or lr.
             if rpl == levels-1:
                 # at bottom node: base lr
-                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step, rpl, m_t, w_t, lr_avga, w_str, w_str2, a_t)        
+                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step, rpl, m_t, w_t, lr_avga, a_t)        
             else:
                 # at other nodes
                 alpha_hat_t = com_sets.assign(rpl+1, w_t)          
@@ -1642,7 +1484,7 @@ def _multi_tensor_sgm(com_sets:CommonSets, steps: List[Tensor],
     
     assert grad_scale is None and found_inf is None
     
-    params, weight_list, weight_smth_list, w_str_list, w_str2_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list = pplists
+    params, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list = pplists
     
     if len(params) == 0: return
 
@@ -1650,11 +1492,11 @@ def _multi_tensor_sgm(com_sets:CommonSets, steps: List[Tensor],
     a_t = com_sets.rcf_cmp(steps[0], com_sets.rcf_cfg)   
     
     grouped_tensors = _group_tensors_by_device_and_dtype(
-        [params, weight_list, weight_smth_list, w_str_list, w_str2_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps])
+        [params, weight_list, weight_smth_list, grad_list, grad_smth_list, grad_var_list, grad_in_list, lr_avga_list, lrm_save_list, lrsq_save_list, steps])
     
     for (device, dtype) in grouped_tensors:
         (
-            dev_params, dev_wt, dev_wt_smth, dev_wt_str, dev_wt_str2,
+            dev_params, dev_wt, dev_wt_smth,
             dev_grads,dev_grads_smth, dev_grads_var, dev_grad_in_t,
             dev_lra, dev_lrm, dev_lrsq, dev_steps
         ) = grouped_tensors[(device, dtype)] 
@@ -1694,7 +1536,7 @@ def _multi_tensor_sgm(com_sets:CommonSets, steps: List[Tensor],
             # compute step-size or lr.
             if rpl == levels-1:
                 # at bottom node: base lr
-                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step_this, rpl, m_t, dev_wt, dev_lra, dev_wt_str, dev_wt_str2, a_t)   
+                alpha_hat_t = com_sets.lr_compute(com_sets.autolr, step_this, rpl, m_t, dev_wt, dev_lra, a_t)   
             else:
                 # at other nodes
                 alpha_hat_t = com_sets.assign(rpl+1, dev_wt)
@@ -1712,6 +1554,8 @@ def _multi_tensor_sgm(com_sets:CommonSets, steps: List[Tensor],
                              
             elif device_has_sparse_grad:
                 # sparse update
+                if step_this == 1:
+                    print('sparse!') # debug
                 com_sets.integrate_sparse(rpl, dev_wt, dev_wt_smth, step_this, params_, m_t, alpha_hat_t, a_t)  
                             
             # log lr
