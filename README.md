@@ -73,22 +73,22 @@ Possible options are documented in [opts/autosgml](opts/autosgml.py). Some of th
 Given a neural network model called `mdl` has been constructed with PyTorch.
 The following examples illustrate how parameters of the model `mdl.parameters()`may be optimized or learnt with this AutoSGM implementation.
 
-By default, this implementation, auto-tunes an initial learning rate iteratively, which in the code snippet below has been set as `lr_init=1e-3` with a normalized gradient. 
+By default, this implementation, auto-tunes an initial learning rate (correlation estimation) with a normalized gradient (variance/moment estimation) iteratively, which in the code snippet below has been set as `lr_init=1e-3`. 
 ```python
 optimizer = AutoSGM(mdl.parameters(), lr_init=1e-4)
 ```
 
-To use only moment estimation (an approximation of the optimal step-size), the code snippet below disables the iteration dependent learning rate function and for all iteration uses a single initial constant learning rate value of `lr_init=1e-3` with a normalized gradient.
+To use only moment estimation, the code snippet below disables the iteration dependent learning rate function and for all iteration uses a single initial constant learning rate value of `lr_init=1e-3` with a normalized gradient.
 ```python
 optimizer = AutoSGM(mdl.parameters(), autolr=False, lr_init=1e-3)
 ```
 
-The code snippet below disables any optimal learning-rate estimation/approximation and uses a single initial learning rate constant `lr_init=1e-3`.
+The code snippet below disables estimation of any optimal learning-rate approximation and uses a single initial learning rate constant `lr_init=1e-3`.
 ```python
 optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, autolr=None)
 ```
 
-Also, important parameters to configure apart from the initial learning rate are the 4 `lowpass` (often called momentum) parameters in `beta_cfg`, which in order are for iteratively smoothing the gradient input, smoothing the weight output, estimating the gradient variance/moment, crudely approximating a learning-rate correlation used for smoothing and averaging. 
+Also, important parameters to configure apart from the initial learning rate are the 4 `lowpass` (often called momentum) parameters in `beta_cfg`, which in order are for iteratively smoothing the gradient input, smoothing the weight output, estimating the gradient variance/moment, crudely approximating a learning-rate correlation. 
 
 By `smoothing`, we mean the `lowpass` filter is used to carefully filter high frequency noise components from its input signal. By `avergaing`, we mean the `lowpass` filter is used to estimate a statistical expectation function. 
 
