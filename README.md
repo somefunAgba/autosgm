@@ -3,7 +3,7 @@ Automatic (Stochastic) Gradient Method (SGM) is a framework for stochastic gradi
 
 Learning is seen as an interconnection between a gradient-generating system like an artificial neural network (a well-defined differentiable function) with the SGM learning system or control function.
 
-<img src="./asgm_view.svg" width="800">   
+<img src="./asgm_view.svg" width="600">   
 
 This suggests that there is only one (stochastic) gradient method (SGM), with different approaches or metrics to both setting-up the learning rate $\alpha_t$, smoothing the gradient $\mathrm{g}_t$ and smoothing the gradient-generating system parameters $\mathrm{w}_t$ by various lowpass filter implementations $`\mathbb{E}_{t,\beta}\{\cdot\}`$ where $0 \le \beta < 1$. The result is the different momentum-based SGD variants in the literature.
 
