@@ -14,8 +14,7 @@ and `output` $\mathrm{w}_t$ is an estimate of each parameter in an (artificial) 
 
 ```math
 \begin{align}
-\mathrm{g}_t \leftarrow \mathbb{E}_{t,\beta_i}\{ \mathrm{g}_t \}\\
-{\rm w}_t \leftarrow \mathbb{I}_{t, \alpha_t}\{ {\rm g_t} \}\\
+\mathrm{g}_t \leftarrow \mathbb{E}_{t,\beta_i}\{ \mathrm{g}_t \},\quad{\rm w}_t \leftarrow \mathbb{I}_{t, \alpha_t}\{ {\rm g_t} \},\quad
 {\rm w}_t \leftarrow \mathbb{E}_{t,\beta_o}\{{\rm w}_t\}
 \end{align}
 ```
@@ -88,9 +87,9 @@ The code snippet below disables estimation of any optimal learning-rate approxim
 optimizer = AutoSGM(mdl.parameters(), lr_init=5e-4, autolr=None)
 ```
 
-Also, important parameters to configure apart from the initial learning rate are the 4 `lowpass` (often called momentum) parameters in `beta_cfg`, which in order are for iteratively smoothing the gradient input, smoothing the weight output, estimating the gradient variance/moment, crudely approximating a learning-rate correlation. 
+Also, important parameters to configure apart from the initial learning rate are the 4 `lowpass` (often called momentum) parameters in `beta_cfg`. The first two  are for iteratively smoothing the gradient input, smoothing the weight output. The last two are for the adapting the learning rate by: estimating the gradient's variance/moment and crudely approximating a learning-rate correlation. 
 
-By `smoothing`, we mean the `lowpass` filter is used to carefully filter high frequency noise components from its input signal. By `avergaing`, we mean the `lowpass` filter is used to estimate a statistical expectation function. 
+By `smoothing`, we mean the `lowpass` filter is used to carefully filter high frequency noise components from its input signal. By `averaging`, we mean the `lowpass` filter is used to estimate a statistical expectation function. 
 
 By default, the values in `beta_cfg` are sensible theoretical values, which should be changed depending on what works and the linearity/architecture of the neural network.
 ```python
