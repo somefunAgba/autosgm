@@ -430,6 +430,7 @@ class CommonSets():
         self.rcf_cfg = rcf_cfg
         self.bte_cfg = bte_cfg
         self.bta_cfg = bta_cfg
+        self.lrdir = bta_cfg.direct
         self.power = bta_cfg.powr
         #       
         self.est_numels = 0
@@ -662,28 +663,6 @@ class CommonSets():
             torch._foreach_zero_(grad_in_rpl)
             torch._foreach_add_(grad_in_rpl, torch._foreach_mul(m_t[rpl],a_t))
 
-    # 
-    def debias(self, step, m_t, rpl, k1_t, a_0, a_t=1):
-        '''
-        correct rcf bias
-        '''
-        # 
-        if not self.lpf.tensor_lists: 
-            # average
-            u = m_t[rpl].mul(a_t*a_0)
-
-            bias, k1_t[rpl] = self.lpf.compute(in_t=u, x=k1_t[rpl], beta=self.dev_beta_b, step=step, mode=6)   
-
-            m_t[rpl].sub_(bias)
-
-        elif self.lpf.tensor_lists:
-            k1 = [ allist[rpl] for allist in k1_t]
-            
-            u = torch._foreach_mul(m_t[rpl], a_t*a_0)
-
-            bias, k1 = self.lpf.compute(in_t=u, x=k1, beta=self.dev_beta_b, step=step, mode=6)
-
-            torch._foreach_sub_(m_t[rpl], bias)
 
     # Integrator
     def integrator(self, w_t, m_t, rpl, alpha_hat_t, a_t=1):
@@ -769,10 +748,7 @@ class CommonSets():
         # learning rate estimation
         # linear correlation estimate update  
         # can we estimate this more accurately?
-        
-        # cyclic step at every 'epfreq'
-        # step_c = (((step-1) % (self.spe*self.epfreq)) + 1)     
-                                               
+                                         
         if autolr==True:
             beta_ss = self.expwin_cmp(step, self.bta_cfg, self.dev_beta_ss)
             # beta_ss = self.dev_beta_ss
@@ -780,7 +756,12 @@ class CommonSets():
             if not self.lpf.tensor_lists:
 
                 wg_t = (w_t[rpl]).mul(m_t[rpl])
-                ewg_t = -wg_t
+                if self.lrdir == 1:
+                    ewg_t = wg_t
+                elif self.lrdir == 0:
+                    ewg_t =wg_t*((-self.fone).pow(step-1))
+                elif self.lrdir == -1: 
+                    ewg_t = -(wg_t)
                 
                 if rpl != 0: 
                     ewg_t.mul_(a_t)                      
@@ -797,9 +778,12 @@ class CommonSets():
                 lrarpl = [ allist[rpl] for allist in lr_avga]         
 
                 wg_t = torch._foreach_mul(wrpl,m_t[rpl])
-                ewg_t = wg_t
-                # ewg_t = torch._foreach_mul(wg_t, torch.pow(-1,step))
-                ewg_t = torch._foreach_neg(wg_t)
+                if self.lrdir == 1:
+                    ewg_t = wg_t
+                elif self.lrdir == 0:
+                    ewg_t = torch._foreach_mul(wg_t, torch.pow(-1,step-1))
+                elif self.lrdir == -1: 
+                    ewg_t = torch._foreach_neg(wg_t)
                 
                 if rpl != 0: 
                     torch._foreach_mul_(ewg_t, a_t)           
@@ -1020,7 +1004,7 @@ class AutoSGM(Optimizer):
                  lr_init=1e-3,  weight_decay=0, eps=1e-8, eps_mode=2, 
                  beta_cfg=(0.9, 0, 0.999, 0.9999), beta_d=0,
                  rcf_cfg=((False), (True,True,True), (1, 1, 0)), 
-                 spe=1, lr_filt_pow=2, batch_scale=1, lvls_scale= 0.001, 
+                 spe=1, lrfilt_modes=(1, 2), batch_scale=1, lvls_scale= 0.001, 
                  loglr_step:Optional[bool]=None,
                  maximize:bool=False, foreach:Optional[bool]=True, differentiable:bool=False):  
         """
@@ -1071,7 +1055,7 @@ class AutoSGM(Optimizer):
             
         `spe` (`int`, optional): steps per epoch => number of batches = `len(trainloader)`. used only if `auto_init_width` in `rcf_cfg` is `int`. (default:`1`).
 
-        `lr_filt_pow` (`int` | `float`, optional): use to indicate degree of linearity of network when estimating the lr. Set to `1`, if network is ~ linear/convex, else set higher. (default: `2`). 
+        `lrfilt_modes` ((`int`, `int`), optional): (lrfilt_dir, lrfilt_pow). For the lr's lowpass filter input use `lrfilt_dir` to set how the  direction changes. Takes a value in {-1,0,1}. Also, use `lrfilt_pow` to specify degree of network's linearity of network. Set to `1`, if network is ~ linear/convex, else set higher. (default: `(1, 2)`). 
             
         `batch_scale` (`float`, optional): use for batch-size scaling (default:`1`)
         
@@ -1115,8 +1099,7 @@ class AutoSGM(Optimizer):
                       l=(0.1)*(1-beta_cfg.beta_e), 
                       last_t=1, cnt=1, upfact=1, dn=1)
         
-        bta_cfg = OAC(win=autolr, 
-                      powr=lr_filt_pow,
+        bta_cfg = OAC(win=autolr, direct=lrfilt_modes[0], powr=lrfilt_modes[1], 
                       u=1-beta_cfg.beta_ss, 
                       l=0.00001, last_t=1, cnt=1, upfact=1, dn=1)
 
