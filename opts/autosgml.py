@@ -759,7 +759,7 @@ class CommonSets():
                 if self.lrdir == 1:
                     ewg_t = wg_t
                 elif self.lrdir == 0:
-                    ewg_t =wg_t*((-self.fone).pow(step-1))
+                    ewg_t = wg_t*(torch.pow(-1,step-1))
                 elif self.lrdir == -1: 
                     ewg_t = -(wg_t)
                 
