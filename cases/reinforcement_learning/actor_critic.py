@@ -18,6 +18,9 @@ from torch.distributions import Categorical
 
 from opts.autosgml import AutoSGM  
 
+import matplotlib.pyplot as plt
+from IPython import display as ipythondisplay
+
 # Cart Pole
 
 parser = argparse.ArgumentParser(description='PyTorch actor-critic example')
@@ -32,9 +35,10 @@ parser.add_argument('--log-interval', type=int, default=10, metavar='N',
 args = parser.parse_args()
 
 
+
 env = gym.make('CartPole-v1')
-env.reset()
-env.seed(args.seed)
+state, info = env.reset(seed=args.seed)
+env.action_space.seed(args.seed)
 torch.manual_seed(args.seed)
 
 
@@ -79,20 +83,13 @@ class Policy(nn.Module):
 
 
 model = Policy()
+
 # optimizer = optim.Adam(model.parameters(), lr=3e-2)
 
 
-# optimizer = AutoSGM(model.parameters(), 
-#                     autolr=False, lr_init=3e-2)
+optimizer = AutoSGM(model.parameters(), autolr=False, lr_init=3e-2, eps=(1e-8,True))
 
-
-# optimizer = AutoSGM(model.parameters(), 
-#                     lr_init=3e-2)
-
-optimizer = AutoSGM(model.parameters(),
-                    lr_init=3e-2,
-                    rcf_cfg=((True), (True, True), (1, 1, 0)),
-                    )
+# optimizer = AutoSGM(model.parameters(), lr_init=3e-2)
 
 
 
@@ -166,7 +163,7 @@ def main():
     for i_episode in count(1):
 
         # reset environment and episode reward
-        state = env.reset()
+        state, info = env.reset()
         ep_reward = 0
 
         # for each episode, only run 9999 steps so that we don't
@@ -177,13 +174,15 @@ def main():
             action = select_action(state)
 
             # take the action
-            state, reward, done, _ = env.step(action)
-
+            state, reward, termin, trunc, info = env.step(action)
+            done = termin or trunc
+            model.rewards.append(reward)
+            ep_reward += reward
+            
             if args.render:
                 env.render()
 
-            model.rewards.append(reward)
-            ep_reward += reward
+            # print(t, reward, ep_reward)
             if done:
                 break
 
@@ -206,4 +205,5 @@ def main():
 
 
 if __name__ == '__main__':
+
     main()
