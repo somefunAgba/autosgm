@@ -87,15 +87,10 @@ Also, important parameters to configure apart from the initial learning rate are
 
 By `smoothing`, we mean the `lowpass` filter is used to carefully filter high frequency noise components from its input signal. By `averaging`, we mean the `lowpass` filter is used to estimate a statistical expectation function. Note that when using the first-order `lowpass` filter: For `smoothing`, the lowpass parameter is often less or equal to `0.9` but for averaging, the lowpass parameter is often greater than `0.9`. 
 
-By default, the values in `beta_cfg` are sensible theoretical values, which should be changed depending on what works and a feel for the linear nature of the learning system (neural network).
+By default, the values in `beta_cfg` are sensible theoretical values, which should be changed depending on what works and a feel for the linear nature of the learning system (neural network). Annotations on available options are documented in [opts/autosgml](opts/autosgml.py).
 ```python
-optimizer = AutoSGM(mdl.parameters(), lr_init=1e-4, 
-beta_cfg=(0.9,0.1,0.999,0))
+optimizer = AutoSGM(mdl.parameters(), lr_init=1e-4, beta_cfg=(0.9,0.1,0.999,0))
 ```
-
-
-
-
 
 <!-- self.sgm = AutoSGM(self.parameters(), 
                 lr_init=cfgs["ss_init"], 
