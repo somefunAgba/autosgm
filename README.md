@@ -3,6 +3,8 @@ Automatic (Stochastic) Gradient Method (SGM) is a framework for stochastic gradi
 
 Such learning process can be viewed as an interconnection between the gradient-generating system and the learning algorithm, *SGM*.
 
+Take a look here → [AutoSGM](https://somefunagba.github.io/asgm)
+
 <img src="./asgm_basic_blk.png" width="700">   
 
 
