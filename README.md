@@ -13,12 +13,6 @@ Such learning process can be viewed as an interconnection between the gradient-g
 ## Dependencies
 Code is entirely in Python, using PyTorch. 
 
-
-<!-- ## Directory structure  -->
-
-### Calling the implementation
-
-Assume `asgm.py` is at the same directory level with the calling file. Load the AutoSGM implementation via 
 ```python
 from asgm import AutoSGM
 ```
