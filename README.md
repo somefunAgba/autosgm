@@ -1,9 +1,9 @@
 # AutoSGM : A Unifying Framework for Accelerated Learning
 Automatic (Stochastic) Gradient Method (SGM) is a framework for stochastic gradient learning that unifies the three popular momentum-based algorithms: (Polyak's Heavy Ball (*PHB*), Nesterov's Accelerated Gradient (*NAG*), Adaptive Moment Estimation (*Adam*)) used in deep learning. 
 
-Learning is seen as an interconnection between a gradient-generating system like an artificial neural network (a well-defined differentiable function) with the SGM learning system or control function.
+Such learning process can be viewed as an interconnection between the gradient-generating system and the learning algorithm, *SGM*.
 
-<img src="./asgm_view.svg" width="700">   
+<img src="./asgm_basic_blk.png" width="700">   
 
 
 <!-- ### Basic signal-processing and control knowledge:  -->
