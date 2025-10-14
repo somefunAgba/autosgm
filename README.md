@@ -3,7 +3,7 @@ Automatic (Stochastic) Gradient Method (SGM) is a framework for stochastic gradi
 
 <img src="./asgm_basic_blk.png" width="700">   
 
-To learn more, take a look here → [AutoSGM](https://somefunagba.github.io/asgm){:target="_blank"}
+To learn more, take a look here → <a href="https://somefunagba.github.io/asgm" target="_blank "> AutoSGM </a>
 
 
 ## Examples
