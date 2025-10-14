@@ -11,24 +11,24 @@ To learn more, take a look here → [AutoSGM](https://somefunagba.github.io/asgm
 ### 1. GPT-2 on Shakespeare-char  
 
 
-<img src="assets/tt_grid2x4_asgmpaper_ngpt_shake_30M_extralrc1_cmps_asgm_runs=10_blksz=128_bsize=64.png" width="500" /> 
+<img src="assets/tt_grid2x4_asgmpaper_ngpt_shake_30M_extralrc1_cmps_asgm_runs=10_blksz=128_bsize=64.png" width="800" /> 
 
 ### 2. VIT on CIFAR10.  
 
 
-<img src="./assets/tr_grid2x4_svit_cifar10_cmps_asgm_runs=5_bsize=100_spe=500_lr=0.001.png" width="500" />   <img src="./assets/tt_grid2x4_svit_cifar10_cmps_asgm_runs=5_bsize=100_spe=500_lr=0.001.png" width="500" /> 
+<img src="./assets/tr_grid2x4_svit_cifar10_cmps_asgm_runs=5_bsize=100_spe=500_lr=0.001.png" width="800" />   <img src="./assets/tt_grid2x4_svit_cifar10_cmps_asgm_runs=5_bsize=100_spe=500_lr=0.001.png" width="800" /> 
 
 
 ### 3. ResNet18 on CIFAR10.  
 
 
-<img src="./assets/tr_grid2x4_asgmpaper_resnet18_cifar10_cmps_asgm_runs=5_bsize=128_iters=spe_391_x_200.png" width="500" />     
-<img src="./assets/tt_grid2x4_asgmpaper_resnet18_cifar10_cmps_asgm_runs=5_bsize=128_iters=spe_391_x_200.png" width="500" /> 
+<img src="./assets/tr_grid2x4_asgmpaper_resnet18_cifar10_cmps_asgm_runs=5_bsize=128_iters=spe_391_x_200.png" width="800" />     
+<img src="./assets/tt_grid2x4_asgmpaper_resnet18_cifar10_cmps_asgm_runs=5_bsize=128_iters=spe_391_x_200.png" width="800" /> 
 
 
 ### 4. GPT-2 on WikiText-103.  
 
-<img src="./assets/tt_grid2x4_asgmpaper_ngpt_wiki_124M_HALF_cmps_asgm_runs=3_blksz=128_bsize=64.png" width="500" /> 
+<img src="./assets/tt_grid2x4_asgmpaper_ngpt_wiki_124M_HALF_cmps_asgm_runs=3_blksz=128_bsize=64.png" width="800" /> 
 
 
 
