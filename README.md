@@ -47,10 +47,8 @@ Here in this [README.md](README.md), we provide some instructions to run the [co
 ## Disclaimer
 The `code` and `style` in this repository is still undergoing `active` development as part of my `PhD` work. Feel free to raise an `issue`, if you detect any `bug` or you have any questions.
 
-## Quickstart — Using AutoSGM
-This section shows a minimal, easy-to-follow example of using AutoSGM with a PyTorch model and lists the most important configuration options.
-
-Minimal example
+## Minimal example — Using AutoSGM
+This section shows a minimal, easy-to-follow example of using the AutoSGM implementation with a PyTorch model and lists the most important configuration options.
 
 ```python
 from asgm import AutoSGM
@@ -63,14 +61,17 @@ model = torch.nn.Sequential(
     torch.nn.Linear(50, 1)
 )
 
-# Example: create AutoSGM optimizer
+num_epochs = 1
+iters_epoch = 100000
+
+# Example: spawn an AutoSGM instance, with cosine annealing.
 opt = AutoSGM(
     model.parameters(),
-    lr_cfg=(True, 1e-3, 0),           # aoptlr=True, lr_init=1e-3, num_lrc=0
-    beta_cfg=(0.9999, 0.999, 0.9, 0, 0, True),
-    rc_cfg=(1, 0, 0, 2, 1, 1, 1000, 1, 0), # turn on windowing (lr schedule)
-    wd_cfg=(0.0, 0),                  # no weight decay
-    eps_cfg=(1e-10, True),            # numerical eps
+    lr_cfg=(True, 1e-3, 3),            # setup learning-rate (lr) algorithm
+    beta_cfg=(0.9999, 0.999, 0.9, 0, 0, True), # setup lowpass filtering (grad.), and averaging (lr)
+    rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0), # setup window (lr schedule)
+    wd_cfg=(0.0, 0),                  # setup weight decay
+    eps_cfg=(1e-10, True),            # setup numerical eps
 )
 
 # update parameters in training loop
