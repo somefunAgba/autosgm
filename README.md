@@ -3,10 +3,13 @@ Automatic (Stochastic) Gradient Method (SGM) is a framework for stochastic gradi
 
 <img src="./asgm_basic_blk.png" width="700">   
 
-To learn more, take a look here → <a href="https://somefunagba.github.io/asgm" target="_blank"> AutoSGM </a>
+To get an overview about the framework, take a look here → <a href="https://somefunagba.github.io/asgm" target="_blank"> AutoSGM </a>
 
 
 ## Examples
+Using Adam as a fixed learning-rate numerator baseline for the learning rate, we tested the AutoSGM framework using an iteration-dependent learning-rate numerator realization on CIFAR-10 (ViT, ResNet) and language modeling (GPT-2 on WikiText and Shakespeare).
+
+The iteration-dependent learning rate numerator (blue curves) outperformed fixed numerator (red curves), across several zero locations of the lowpass filter.
 
 ### 1. GPT-2 on Shakespeare-char  
 
