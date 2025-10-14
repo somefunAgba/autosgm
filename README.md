@@ -68,7 +68,7 @@ iters_epoch = 100000
 opt = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 3),            # setup learning-rate (lr) algorithm
-    beta_cfg=(0.9999, 0.999, 0.9, 0, 0, True), # setup lowpass filtering (grad.), and averaging (lr)
+    beta_cfg=(0.9999, 0.999, 0.9, 0.5528, 0, True), # setup  averaging (lr), and lowpass filtering (grad.)
     rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0), # setup window (lr schedule)
     wd_cfg=(0.0, 0),                  # setup weight decay
     eps_cfg=(1e-10, True),            # setup numerical eps
