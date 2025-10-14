@@ -3,30 +3,32 @@ Automatic (Stochastic) Gradient Method (SGM) is a framework for stochastic gradi
 
 <img src="./asgm_basic_blk.png" width="700">   
 
-Take a look here → [AutoSGM](https://somefunagba.github.io/asgm)
+To learn more, take a look here → [AutoSGM](https://somefunagba.github.io/asgm)
 
 
-### 1. GPT-2 on Shakespeare-char: **~32% lower test loss** over fixed-rate baseline.  
+## Examples
+
+### 1. GPT-2 on Shakespeare-char  
 
 
-<img src="assets/tt_grid2x4_asgmpaper_ngpt_shake_30M_extralrc1_cmps_asgm_runs=10_blksz=128_bsize=64.png" width="300" /> 
+<img src="assets/tt_grid2x4_asgmpaper_ngpt_shake_30M_extralrc1_cmps_asgm_runs=10_blksz=128_bsize=64.png" width="500" /> 
 
 ### 2. VIT on CIFAR10.  
 
-|:-------------------------:|:-------------------------:|
-<img src="./assets/tr_grid2x4_svit_cifar10_cmps_asgm_runs=5_bsize=100_spe=500_lr=0.001.png" width="300" />  |   <img src="./assets/tt_grid2x4_svit_cifar10_cmps_asgm_runs=5_bsize=100_spe=500_lr=0.001.png" width="300" /> 
+
+<img src="./assets/tr_grid2x4_svit_cifar10_cmps_asgm_runs=5_bsize=100_spe=500_lr=0.001.png" width="500" />   <img src="./assets/tt_grid2x4_svit_cifar10_cmps_asgm_runs=5_bsize=100_spe=500_lr=0.001.png" width="500" /> 
 
 
 ### 3. ResNet18 on CIFAR10.  
 
-|:-------------------------:|:-------------------------:|
-<img src="./assets//resnet_cifar10_tr.png" width="300" />  |   <img src="./assets/resnet_cifar10_tt.png" width="300" /> 
+
+<img src="./assets/tr_grid2x4_asgmpaper_resnet18_cifar10_cmps_asgm_runs=5_bsize=128_iters=spe_391_x_200.png" width="500" />     
+<img src="./assets/tt_grid2x4_asgmpaper_resnet18_cifar10_cmps_asgm_runs=5_bsize=128_iters=spe_391_x_200.png" width="500" /> 
 
 
 ### 4. GPT-2 on WikiText-103.  
 
-|:-------------------------:|:-------------------------:|
-<img src="./assets/asgm/gpt2_124M_wiki_tr.png" width="300" />  |   <img src="./assets/asgm/gpt2_124M_wiki_tt.png" width="300" /> 
+<img src="./assets/tt_grid2x4_asgmpaper_ngpt_wiki_124M_HALF_cmps_asgm_runs=3_blksz=128_bsize=64.png" width="500" /> 
 
 
 
@@ -42,7 +44,7 @@ This supplementary material contains the [Appendices](Appendices_asgm_nips.pdf) 
 Here in this [README.md](README.md), we provide some instructions to run the [code](notebooks/)  -->
 
 
-## Note
+## Disclaimer
 The `code` and `style` in this repository is still undergoing `active` development as part of my `PhD` work. Feel free to raise an `issue`, if you detect any `bug` or you have any questions.
 
 ## Quickstart — Using AutoSGM
