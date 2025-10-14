@@ -1089,7 +1089,7 @@ class AutoSGM(Optimizer):
     def lrc_2(self, lr0, betas, t, w, gn, s):
         '''[relaxed upbnd.] par-corr. variant
 
-        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes an EMA estimate of the maximum partial-correlation relaxed by `lr0`. Ensuring that the effective estimate remains within the trust-region envelope, the resulting EMA estimate is clipped within `[0, lr0]`, Finally, the values are averaged across the layer to yield a single, robust par-corr estimate.      
+        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes an EMA estimate of the maximum partial-correlation relaxed by `lr0`. Ensuring that the effective estimate remains within the trust-region envelope, the resulting EMA estimate is clipped within `[0, lr0]`, Finally, the estimates are averaged across the layer to yield a single, robust par-corr estimate.      
         '''
         out, s = _lpf_can(s, (_sq(w)+_sq(gn))*lr0, t, betas[0])
         return torch.mean(out.clip(max=lr0)) if self.per_lay else out
@@ -1097,7 +1097,7 @@ class AutoSGM(Optimizer):
     def lrc_3(self, lr0, betas, t, w, gn, s, wsq, pcx, gpow):
         '''[robust] par-corr. est.
         
-        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes a robust EMA estimate of the partial-correlation by averaging the Huber-transformed weight-gradient product `w*gn` relative to its expected magnitude `pcx`. Ensuring that the effective estimate remains within the trust-region envelope, a Tukey-transform is used to clip the resulting EMA estimate to be within `[0, lr0*(1+E[wsq])]`, Finally, the values are averaged across the layer to yield a single, robust par-corr estimate.     
+        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes a robust EMA estimate of the partial-correlation via a Huber-transformed weight-gradient product `w*gn` relative to its expected magnitude `pcx`. Ensuring that the effective estimate remains within the trust-region envelope, a Tukey-transform is used to clip the resulting EMA estimate to be within `[0, lr0*(1+E[wsq])]`, Finally, the estimates are averaged across the layer to yield a single, robust par-corr estimate.   
         '''
         # clip input
         _, wsq = _lpf_can(wsq, _sq(w), t, betas[0])
