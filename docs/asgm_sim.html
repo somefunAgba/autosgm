@@ -7519,11 +7519,11 @@ a.anchor-link {
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h1 id="AutoSGM-%E2%80%94-Run-this-notebook-from-your-README-/-GitHub-Pages">AutoSGM — Run this notebook from your README / GitHub Pages<a class="anchor-link" href="#AutoSGM-%E2%80%94-Run-this-notebook-from-your-README-/-GitHub-Pages">¶</a></h1><p>This notebook (opts/asgm_sim.ipynb) can be launched interactively from your repository README or GitHub Pages using Binder or Google Colab. Add one of the badges/links below to your README (replace the placeholders <username>, <repo>, <branch> with your repository information).</branch></repo></username></p>
 <p>Binder (interactive):</p>
-<p><a href="https://mybinder.org/v2/gh/%3CUSERNAME%3E/%3CREPO%3E/%3CBRANCH%3E?filepath=opts/asgm_sim.ipynb"><img alt="Binder" src="https://mybinder.org/badge_logo.svg"/></a></p>
+<p><a href="https://mybinder.org/v2/gh/somefunagba/autosgm/main/?filepath=opts/asgm_sim.ipynb"><img alt="Binder" src="https://mybinder.org/badge_logo.svg"/></a></p>
 <p>Google Colab (open notebook on Colab):</p>
-<p><a href="https://colab.research.google.com/github/%3CUSERNAME%3E/%3CREPO%3E/blob/%3CBRANCH%3E/opts/asgm_sim.ipynb">Open in Colab</a></p>
+<p><a href="https://colab.research.google.com/github/somefunagba/autosgm/blob/main/asgm_sim.ipynb">Open in Colab</a></p>
 <p>Static rendering (nbviewer):</p>
-<p><a href="https://nbviewer.org/github/">https://nbviewer.org/github/</a><username>/<repo>/blob/<branch>/opts/asgm_sim.ipynb</branch></repo></username></p>
+<p><a href="https://nbviewer.org/github/">https://nbviewer.org/github/somefunagba/autosgm/blob/main/asgm_sim.ipynb</a></p>
 <p>Notes:</p>
 <ul>
 <li>Replace <username>, <repo>, <branch> with your GitHub username, repository name and branch (e.g. main).</branch></repo></username></li>
@@ -7542,12 +7542,12 @@ a.anchor-link {
 <p>Quick steps to make the notebook runnable from README or blog:</p>
 <ol>
 <li><p>Add one (or more) of the badge/links above to your repository README.md. For example:</p>
-<div class="highlight"><pre><span></span>[<span class="nt">![Binder</span>](<span class="na">https://mybinder.org/badge_logo.svg</span>)](https://mybinder.org/v2/gh/&lt;USERNAME&gt;/&lt;REPO&gt;/&lt;BRANCH&gt;?filepath=opts/asgm_sim.ipynb)
-[<span class="nt">Open in Colab</span>](<span class="na">https://colab.research.google.com/github/&lt;USERNAME&gt;/&lt;REPO&gt;/blob/&lt;BRANCH&gt;/opts/asgm_sim.ipynb</span>)
+<div class="highlight"><pre><span></span>[<span class="nt">![Binder</span>](<span class="na">https://mybinder.org/badge_logo.svg</span>)](https://mybinder.org/v2/gh/somefunagba/autosgm/main?filepath=opts/asgm_sim.ipynb)
+[<span class="nt">Open in Colab</span>](<span class="na">https://colab.research.google.com/github/somefunagba/autosgm/blob/main/asgm_sim.ipynb</span>)
 </pre></div>
 </li>
 <li><p>(Optional) Embed a rendered view in a GitHub Pages blog post using an iframe to the nbviewer URL (GitHub strips some HTML in README but Pages/Jekyll often allow iframes):</p>
-<div class="highlight"><pre><span></span><span class="p">&lt;</span><span class="nt">iframe</span> <span class="na">src</span><span class="o">=</span><span class="s">"https://nbviewer.org/github/&lt;USERNAME&gt;/&lt;REPO&gt;/blob/&lt;BRANCH&gt;/opts/asgm_sim.ipynb"</span> <span class="na">width</span><span class="o">=</span><span class="s">"100%"</span> <span class="na">height</span><span class="o">=</span><span class="s">"800"</span><span class="p">&gt;&lt;/</span><span class="nt">iframe</span><span class="p">&gt;</span>
+<div class="highlight"><pre><span></span><span class="p">&lt;</span><span class="nt">iframe</span> <span class="na">src</span><span class="o">=</span><span class="s">"https://nbviewer.org/github/somefunagba/autosgm/blob/main/asgm_sim.ipynb"</span> <span class="na">width</span><span class="o">=</span><span class="s">"100%"</span> <span class="na">height</span><span class="o">=</span><span class="s">"800"</span><span class="p">&gt;&lt;/</span><span class="nt">iframe</span><span class="p">&gt;</span>
 </pre></div>
 </li>
 <li><p>If running on Colab/Binder, you may need to install dependencies. See the next code cell for a minimal install snippet.</p>
@@ -7566,7 +7566,7 @@ a.anchor-link {
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="c1"># Minimal setup for Colab/Binder: install the repository directly from GitHub (replace placeholders)</span>
 <span class="c1"># In Colab you can run:</span>
-<span class="c1"># !pip install -q git+https://github.com/&lt;USERNAME&gt;/&lt;REPO&gt;.git@&lt;BRANCH&gt;#egg=asgm</span>
+<span class="c1"># !pip install -q git+https://github.com/somefunagba/autosgm;.git@main;#egg=asgm</span>
 <span class="c1"># If your package is not published, use pip install -e . in Binder or adjust to your layout.</span>
 
 <span class="c1"># Quick sanity check after installation:</span>
