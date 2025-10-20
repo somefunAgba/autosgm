@@ -11,7 +11,7 @@ This LTV description makes it possible to apply linear systems, control and sign
 
 <span align="center">
 
-<strong><a href="https://somefunagba.github.io/learning_dynamics">View the Stochastic Gradient Learning Dynamics !</a></strong>
+<strong><a href="https://somefunagba.github.io/learning_dynamics" target="_blank"> View the Stochastic Gradient Learning Dynamics !</a></strong>
 
 An overview about the framework can also be found here → <a href="https://somefunagba.github.io/asgm" target="_blank"> AutoSGM </a>
 
