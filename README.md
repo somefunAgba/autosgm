@@ -9,34 +9,7 @@
 Given a gradient-generating system like a deep neural network, the AutoSGM framework exposes the exact update trajectory of each trainable parameter via the stochastic gradient algorithm under a **lowpass filter** (momentum) and **iteration-dependent learning-rate** oracle as the dynamics of a **first-order linear time (iteration) varying (LTV) filter**.
 This LTV description makes it possible to apply linear systems, control and signal‑processing tools to reason about stability, transient response, noise attenuation and steady-state convergence tradeoffs. 
 
-<p align="center"><strong><a href="#">See it in action!</a></strong></p>
-
-Formally, at each iteration $t$, a parameter component $\mathbf{w}[t, i]$, and its gradient component $\mathbf{g}[t, i]$ can be written as
-
-$\mathbf{w}[t+1, i] = \mathbf{w}[t,i] + \Delta \mathbf{w}[t,i]$,
-
-$\Delta\mathbf{w}[t+1, i] = \beta\,r[t, i]\cdot\Delta \mathbf{w}[t,i] + \eta\,\alpha[t,i]\cdot \mathbf{e}[t,i]$,
-
-$\mathbf{e}[t, i] = \bigl(\gamma\,\mathbf{g}[t, i] - \mathbf{g}[t-1, i] \bigr) + \rho\,\eta^{-1}\bigl(\beta \,\tilde{\mathbf{w}}[t-1, i] - \tilde{\mathbf{w}}[t, i]\bigr)$,
-
-where
-- $\alpha[t,i] = \mu\,F[t]\cdot\mathbf{a}[t,i]/\mathbf{d}[t,i]$ is the iteration-dependent learning rate oracle, with a trust-region constant $0 < \mu < 1$ and a window function $0 \le F[t] \le 1$ as the learning-rate schedule,
-- $r[t,i] = \alpha[t,i]/\alpha[t-1,i]$ is the learning rate ratio,
-- $\beta$ is the lowpass filter's pole parameter selected for stability $0 \le \beta < 1$,
-- $\gamma$ is the lowpass filter's zero parameter,
-- $\eta$ is a constant selected as $(1-\beta)/(1-\gamma)$ such the steady-state (DC) gain of the lowpass filter is unity,
-- $\rho$ is a weight-decay constant selected within a unit range,
-- $\tilde{\mathbf{w}}[t, i] = \mathbf{d}[t,i]\,{\mathbf{w}}[t, i]$ is the weighted parameter via the learning-rate's denominator.
-
-*Under the mild assumptions of local smoothness of the loss function generating the gradient, and bounded gradient moments, the trajectory input $\mathbf{e}[t, i]$ is bounded.*
-
-
-The lowpass pole $\beta$ shapes the exponential stability margin of the system and the low-frequency smoothness of the lowpass filter. For exponential stability $|r[t,i]| < \beta^{-1}$, if $0 < \beta < 1$.
-
-In addition, if $0 < \beta < 1$ to ensure asymptotic stability, $|r[t,i]| \to 0$ as $t$ grows large, we need $F[t] \to 0$ as $t \to \infty$. *This explains why learning-rate annealing is important.*
-
-The iteration-dependent learning rate (or gain) $\alpha[t,i]$ controls both the stability and convergence of the system. For BIBO stability, if $0 < \beta < 1$, requires $\sup_t \alpha[t,i] < \infty$.
-
+<p align="center"><strong><a href="https://somefunagba.github.io/learning_dynamics">View the Learning Dynamics</a></strong></p>
 
 <img src="./asgm_basic_blk.png" width="700">   
 
