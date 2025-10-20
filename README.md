@@ -15,9 +15,21 @@ This LTV description makes it possible to apply linear systems, control and sign
 
 An overview about the framework can also be found here → <a href="https://somefunagba.github.io/asgm" target="_blank"> AutoSGM </a>
 
+</span>
+
+
+- Formalize `momentum` as a first-order (single-pole, single-zero) lowpass filter (a design space which `PHB` and `NAG` belongs to).
+- `Adam` as part of an optimal iteration-dependent learning rate.
+- The exact iteration-dependent learning rate involves a partial-correlation estimator and a moment estimator.
+- Momentum as Lowpass Regularization. Smoothing the gradient is approximately smoothing the loss.
+- Characterize the stability of the learning dynamics.
+- Generalized interpretation of `decoupled weight-decay`.
+
+
+
 <img align="center" src="./asgm_basic_blk.png" width="700">   
 
-</span>
+
 
 ## Examples
 Using Adam as a fixed learning-rate numerator $\mathbf{a}[t,i] =1$ baseline for the iteration-dependent learning rate, we tested the AutoSGM framework using our iteration-dependent partial-correlation learning-rate numerator realization on CIFAR-10 (ViT, ResNet) and language modeling (GPT-2 on WikiText and Shakespeare).
@@ -64,7 +76,7 @@ Here in this [README.md](README.md), we provide some instructions to run the [co
 The `code` and `style` in this repository is still undergoing `active` development as part of my `PhD` work. Feel free to raise an `issue`, if you detect any `bug` or you have any questions.
 
 ## Minimal example — Using AutoSGM
-This section shows a minimal example of using the AutoSGM implementation with a PyTorch model and lists the most important configuration options.
+This section shows a minimal, easy-to-follow example of using the AutoSGM implementation with a PyTorch model and lists the most important configuration options.
 
 ```python
 from asgm import AutoSGM
