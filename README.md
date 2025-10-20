@@ -7,7 +7,7 @@ This LTV description makes it possible to apply linear systems, control and sign
 
 Formally, at each iteration $t$, a parameter component $\mathbf{w}[t, i]$, and its gradient component $\mathbf{g}[t, i]$ can be written as
 
-$\mathbf{w}[t+1, i] = \mathbf{w}[t,i] + \Delta \mathbf{w}[t,i]$,
+$$\mathbf{w}[t+1, i] = \mathbf{w}[t,i] + \Delta \mathbf{w}[t,i]$$,
 
 $\Delta\mathbf{w}[t+1, i] = \beta\,r[t, i]\cdot\Delta \mathbf{w}[t,i] + \eta\,\alpha[t,i]\cdot \mathbf{e}[t,i]$,
 
