@@ -9,12 +9,15 @@
 Given a gradient-generating system like a deep neural network, the AutoSGM framework exposes the exact update trajectory of each trainable parameter via the stochastic gradient algorithm under a **lowpass filter** (momentum) and **iteration-dependent learning-rate** oracle as the dynamics of a **first-order linear time (iteration) varying (LTV) filter**.
 This LTV description makes it possible to apply linear systems, control and signal‑processing tools to reason about stability, transient response, noise attenuation and steady-state convergence tradeoffs. 
 
-<p align="center"><strong><a href="https://somefunagba.github.io/learning_dynamics">View the Learning Dynamics</a></strong></p>
+<span align="center">
 
-<img src="./asgm_basic_blk.png" width="700">   
+<strong><a href="https://somefunagba.github.io/learning_dynamics">View the Stochastic Gradient Learning Dynamics !</a></strong>
 
 An overview about the framework can also be found here → <a href="https://somefunagba.github.io/asgm" target="_blank"> AutoSGM </a>
 
+<img align="center" src="./asgm_basic_blk.png" width="700">   
+
+</span>
 
 ## Examples
 Using Adam as a fixed learning-rate numerator $\mathbf{a}[t,i] =1$ baseline for the iteration-dependent learning rate, we tested the AutoSGM framework using our iteration-dependent partial-correlation learning-rate numerator realization on CIFAR-10 (ViT, ResNet) and language modeling (GPT-2 on WikiText and Shakespeare).
