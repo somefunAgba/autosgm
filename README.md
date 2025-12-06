@@ -116,14 +116,23 @@ opt.zero_grad()
     - *3*: moment estimator + markov-style correlation estimator.
     - *4*: moment estimator + chebyshev-style correlation estimator.
 
-<!-- Notes on common config tuples
-- beta_cfg = (beta_n, beta_a, beta_i, gamma_i, eta_i, debias)
-  - beta_n, beta_a, beta_i: smoothing pole constants for internal EMAs and filters.
-  - gamma_i: zero/predictive term for the smoothing filter (0 for HB, appropriate value for NAG-like behavior).
-  - eta_i: input normalization for LPF (if 0, it's set automatically to 1-beta).
-  - debias: bool. If True, debiased outputs are produced by the filters.
+> Filtering (gradient smoothing and exponential moving averages, EMAs)
+- beta_cfg = (`beta_n`, `beta_a`, `beta_i`, `gamma_i`, `eta_i`, `debias`)
+  - `beta_n`: *float*. filter pole for EMA used in correlation estimation (expects long-term memory, that is a `beta_n` close to  `1`)
+    - default is **0.9999**
+  - `beta_a`: *float*. filter pole for EMA used in moment estimation (expects long-term memory, that is a `beta_a` close to `1`)
+    - default is **0.999**
+  - `beta_i`: *float*. smoothing filter's pole (`0 < beta_i < 1`).
+    - default is **0.9**
+  - `gamma_i`: *float*. smoothing filter's zero (less than the pole)
+    - **HB**: set as `gamma_i=0` (default)
+    - **NAG**: set as `gamma_i=beta_i/(1+beta_i)`
+  - `eta_i`: *float*. input normalization constant for the smoothing filter
+    - note the default `eta_i=0`, the code sets it to `eta_i=1-beta_i`.
+  - `debias`: *bool*. (**True**, **False**) 
+    - **True**, debias the filter output for improved transient-behavior (default).
 
-- rc_cfg = (rcm, inseq, x, n, m, tau, spe, cfact, e)
+<!-- - rc_cfg = (rcm, inseq, x, n, m, tau, spe, cfact, e)
   - rcm: window mode (0=inactive, 1=raised-cosine, 2=tri/linear, 3=beta-exp, 4=simple-poly, 5=logistic, 6=other sigmoid).
   - inseq: input sequence type (0=uniform/rectangular, 1=kronecker/randomized ordering).
   - x: minimum fraction of function max (fmin = x * fmax).
