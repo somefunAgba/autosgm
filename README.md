@@ -110,11 +110,11 @@ opt.zero_grad()
     - **False**: use `lr_init` as a constant learning rate.
   - `lr_init`: *float*. trust-region constant used by the iteration-dependent ratio function when `aoptlr=True`
   - `num_lrc`: *int*. (0,1,2,3,4) choose a correlation estimator
-    - *0*: moment estimator + correlation estimator always 1 (baseline), 
-    - *1*: moment estimator + correlation estimator < 1, via a Chebyshev-style correlation estimator
-    - *2*: moment estimator + Max-bound correlation estimator
-    - *3*: moment estimator + Markov-style correlation estimator.
-    - *4*: moment estimator + Chebyshev-style correlation estimator.
+    - *0*: robust moment estimator + simple correlation term = 1 (baseline). 
+    - *1*: robust moment estimator + simple correlation term <= 1.
+    - *2*: robust moment estimator + correlation estimator. Relaxed upper-bound variant
+    - *3*: robust moment estimator + correlation estimator. Markov-variant
+    - *4*: robust moment estimator + correlation estimator. Chebyshev-variant
 
 > Filtering (gradient smoothing (lowpass regularization) and exponential moving averages (EMAs))
 - `beta_cfg` = (`beta_n`, `beta_a`, `beta_i`, `gamma_i`, `eta_i`, `debias`)
