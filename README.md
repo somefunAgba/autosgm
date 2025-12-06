@@ -1,29 +1,24 @@
 <p align="center">
     <h1 align="center">AutoSGM : A Unifying Framework for Accelerated Learning</h1>
-    <p align="center">Automatic (Stochastic) Gradient Method (SGM) is a <b>framework</b> for stochastic gradient learning that unifies the three popular momentum-based algorithms: (Polyak's Heavy Ball (<b>PHB</b>), Nesterov's Accelerated Gradient (<b>NAG</b>), Adaptive Moment Estimation (<b>Adam</b>)) used in deep learning. </p>
-    <!-- <p align="center"><strong><a href="https://just-the-docs.com/">See it in action!</a></strong></p> -->
-    <!-- <br><br><br> -->
+    <p align="center"> What is Momentum? Is there a clearer way for us to reason about the popular stochastic gradient methods that dominate deep learning? </p>
+    <p align="center">Enter the<a href="https://somefunagba.github.io/asgm" target="_blank">  <strong> AutoSGM </strong></a> framework .</p>
+
 </p>
 
+-  **Momentum** in (Polyak's Heavy Ball, **PHB** and Nesterov's Accelerated Gradient, **NAG**) are <a href="https://somefunagba.github.io/asgm_qsim" target="_blank"> **points in the design space**</a> of a **first-order lowpass filter**
+- **Moment estimation** (or Adaptive Moment Estimation **Adam**) of the gradient is part of an optimal iteration-dependent *learning rate* function.
 
-Given a gradient-generating system like a deep neural network, the AutoSGM framework exposes the exact update trajectory of each trainable parameter via the stochastic gradient algorithm under a **lowpass filter** (momentum) and **iteration-dependent learning-rate** oracle as the dynamics of a **first-order linear time (iteration) varying (LTV) filter**.
-This LTV description makes it possible to apply linear systems, control and signal‑processing tools to reason about stability, transient response, noise attenuation and steady-state convergence tradeoffs. 
+- The ratio-function of a **correlation estimator** and a **moment estimator** is an optimal iteration-dependent learning rate oracle.
+- Smoothing the gradient via the **first-order lowpass filter** is approximately smoothing the loss function, so its primary function is regularization not acceleration.
+- In general, under a first-order filtering of the gradient, and choice of an iteration-dependent learning rate, the <a href="https://somefunagba.github.io/learning_dynamics" target="_blank">**stochastic gradient learning dynamics**</a> is that of a **first-order linear time (iteration) varying (LTV) filter** at the parameter-change level.
+- Characterize the **stability** of the stochastic gradient learning dynamics.
+- Generalize the interpretation of **decoupled** weight-decay as **L2 regularization** at the parameter-change level.
 
-<span align="center">
+<!-- Automatic (Stochastic) Gradient Method (SGM) is a <b>framework</b> for stochastic gradient learning that unifies the three popular momentum-based algorithms: (Polyak's Heavy Ball (<b>PHB</b>), Nesterov's Accelerated Gradient (<b>NAG</b>), Adaptive Moment Estimation (<b>Adam</b>)) used in deep learning. -->
 
-<strong><a href="https://somefunagba.github.io/learning_dynamics" target="_blank"> View the Stochastic Gradient Learning Dynamics !</a></strong>
+<!-- Given a gradient-generating system like a deep neural network, the AutoSGM framework exposes the exact update trajectory of each trainable parameter via the stochastic gradient algorithm under a **lowpass filter** (momentum) and **iteration-dependent learning-rate** oracle as the dynamics of a **first-order linear time (iteration) varying (LTV) filter**. -->
 
-An overview about the framework can also be found here → <a href="https://somefunagba.github.io/asgm" target="_blank"> AutoSGM </a>
-
-</span>
-
-
-- Formalize `momentum` as a first-order (single-pole, single-zero) lowpass filter (a design space which `PHB` and `NAG` belongs to).
-- `Adam` as part of an optimal iteration-dependent learning rate.
-- The exact iteration-dependent learning rate involves a partial-correlation estimator and a moment estimator.
-- Momentum as Lowpass Regularization. Smoothing the gradient is approximately smoothing the loss.
-- Characterize the stability of the learning dynamics.
-- Generalized interpretation of `decoupled weight-decay`.
+<!-- This LTV description makes it possible to apply linear systems, control and signal‑processing tools to reason about stability, transient response, noise attenuation and steady-state convergence tradeoffs.  -->
 
 
 
@@ -32,9 +27,9 @@ An overview about the framework can also be found here → <a href="https://some
 
 
 ## Examples
-Using Adam as a fixed learning-rate numerator $\mathbf{a}[t,i] =1$ baseline for the iteration-dependent learning rate, we tested the AutoSGM framework using our iteration-dependent partial-correlation learning-rate numerator realization on CIFAR-10 (ViT, ResNet) and language modeling (GPT-2 on WikiText and Shakespeare).
+Using Adam as a fixed learning-rate numerator (colored **red**) baseline for the fuller iteration-dependent learning rate (colored **blue**), we tested the AutoSGM framework on CIFAR-10 image-classifcation (ViT, ResNet) and language modeling (GPT-2 on WikiText-103 and Shakespeare-char) tasks.
 
-The iteration-dependent learning rate numerator (blue curves) outperformed fixed numerator (red curves), across several zero locations of the lowpass filter.
+Results: The **blue** curves mostly outperformed **red** curves, across several zero locations ($\gamma$) of the first-order lowpass filter.
 
 ### 1. GPT-2 on Shakespeare-char  
 
