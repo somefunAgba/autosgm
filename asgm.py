@@ -100,11 +100,18 @@ def _capt_mn_sd(tensor):
 #-------- Robustifiers --------------------
 
 def _huber(val, cap, c=4):
-    return torch.sign(val) * torch.clip(val.abs(), max=c*cap)
+   ''' fixed sign Huber clip '''
+   return torch.sign(val) * torch.clip(val.abs(), max=c*cap)
 
 def _tuckey(val):
+    '''' Tuckey's biweight clip'''
     valc = torch.clip(val, max=1)
     return _sq(1 - _sq(valc))*valc
+
+'''General template for Huber clipping'''
+def _hubg(x, mag, scale, a=4):
+    # (x/mag) * min(mag, a*scale)
+    return (x/mag) * torch.clip(mag, max=a*scale)
 
 '''Markov-based template'''
 def _huber_m(x, mag, expt_mag, a=4):
@@ -112,7 +119,15 @@ def _huber_m(x, mag, expt_mag, a=4):
     ' mag = |x| > 0, expt_mag = E[|x|] > 0'''
     # ssign = x/mag
     # cap = a*expt_mag
-    return (x/mag) * torch.clip(mag, max=a*expt_mag)
+    # return (x/mag) * torch.clip(mag, max=a*expt_mag)
+    return _hubg(x, mag, expt_mag, a)
+
+def _hub_mark_v(x, s, t, beta, a, eps):
+    ''' vectorized form'''
+    xn = torch.abs(x)
+    xmag = xn.add(eps)
+    xm, s = _lpf_can_t(s, xmag, t, beta)
+    return _huber_m(x, xmag, xm, a)
 
 '''Chebyshev-based template'''
 def _huber_c(x, mag, expt_sd, a=4):
@@ -120,14 +135,25 @@ def _huber_c(x, mag, expt_sd, a=4):
     ' mag = |x - E[x]| > 0, expt_sd = sqrt[E[|x- E[x]|^2]] > 0 '''
     # ssign = x/mag
     # cap = a*expt_sd
-    return (x/mag) * torch.clip(mag, max=a*expt_sd)
+    # return (x/mag) * torch.clip(mag, max=a*expt_sd)
+    return _hubg(x, mag, expt_sd, a)
 
-def _hub_mark_v(x, s, t, beta, a, eps):
-    ''' vectorized '''
-    xn = torch.abs(x)
-    xmag = xn.add(eps)
-    xm, s = _lpf_can_t(s, xmag, t, beta)
-    return _huber_m(x, xmag, xm, a)
+def _hub_cheb_v1(x, s1, s2, t, beta, a, eps):
+    ''' vectorized form'''
+    xm, s1 = _lpf_can(s1, x, t, beta)
+    xmag = torch.abs(x-xm).add(eps)
+    xvar, s2 = _lpf_can(s2, _sq(xmag), t, beta)
+    torch.sqrt_(xvar).add_(eps)
+    return _huber_c(x, xmag, xvar, a)
+
+def _hub_cheb_s1(x, s1, s2, t, beta, a, eps):
+    ''' scalar version '''
+    xn = torch.norm(x)
+    xm, s1 = _lpf_can(s1, xn, t, beta)
+    xmag = torch.norm(x-xm).add(eps)
+    xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
+    torch.sqrt_(xvar).add_(eps)
+    return _huber_c(x, xmag, xvar, a)
 
 # def _hub_mark_vd(x, s, t, beta, v, eps):
 #     ''' vectorized, dynamic scale'''
@@ -144,15 +170,6 @@ def _hub_mark_v(x, s, t, beta, a, eps):
 #     xm, s = _lpf_can(s, xmag, t, beta)
 #     return _huber_m(x, xmag, xm, a)
 
-def _hub_cheb_s1(x, s1, s2, t, beta, a, eps):
-    ''' scalar '''
-    xn = torch.norm(x)
-    xm, s1 = _lpf_can(s1, xn, t, beta)
-    xmag = torch.norm(x-xm).add(eps)
-    xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
-    torch.sqrt_(xvar).add_(eps)
-    return _huber_c(x, xmag, xvar, a)
-
 # def _hub_cheb_s2(x, s1, s2, t, beta, a, eps):
 #     xn = torch.norm(x)
 #     xm, s1 = _lpf_can(s1, xn, t, beta)
@@ -161,13 +178,7 @@ def _hub_cheb_s1(x, s1, s2, t, beta, a, eps):
 #     torch.sqrt_(xvar).add_(eps)
 #     return _huber_c(x, xmag, xvar, a)
 
-def _hub_cheb_v1(x, s1, s2, t, beta, a, eps):
-    ''' vectorized '''
-    xm, s1 = _lpf_can(s1, x, t, beta)
-    xmag = torch.abs(x-xm).add(eps)
-    xvar, s2 = _lpf_can(s2, _sq(xmag), t, beta)
-    torch.sqrt_(xvar).add_(eps)
-    return _huber_c(x, xmag, xvar, a)
+
 
 # def _hub_cheb_v2(x, s1, s2, t, beta, a, eps):
 #     xn = torch.abs(x)
@@ -1177,9 +1188,9 @@ class AutoSGM(Optimizer):
         lrn = state['lr_num']
         if aoptlr:     
             # opt lr's numerator
-            if num_lrc in [0, 1]: # denominator only.
-                return lr0
-            elif num_lrc == 1: # conditional numerator
+            if num_lrc == 0: # denominator only.
+                return lr0  # lr0*1
+            elif num_lrc == 1: # 
                 grm = state['hcmag']
                 grv = state['hcvar']
                 numlr = self.a1(lr0, v, grm, grv, t, betas[0])
@@ -1214,14 +1225,15 @@ class AutoSGM(Optimizer):
             return lr0
         
     def a1(self, lr0, x, s1, s2, t, beta):
-        ''' scalar huber cheb.'''
+        ''' scalar [robust-cheb] corr. <=1 '''
         xn = torch.norm(x)
         xm, s1 = _lpf_can(s1, xn, t, beta)
         xmag = torch.norm(x-xm).add(self.eps)
-        xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
+        xvar, s2 = _lpf_can(s2, _sq(xmag), t, beta)
         torch.sqrt_(xvar).add_(self.eps)
-        # see _huber_c
-        return (lr0 / xmag) * torch.clip(xmag, max=self.cf*xvar)
+        # lr0 * (1/xmag) * min(xmag, self.cf*xvar)
+        return _hubg(lr0, xmag, xvar, self.cf)
+        
     
     def a2(self, lr0, betas, t, w, gn, s):
         '''[relaxed upbnd.] par-corr. variant
