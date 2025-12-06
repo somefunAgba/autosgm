@@ -90,8 +90,8 @@ iters_epoch = 100000
 # Example: spawn an AutoSGM instance, with cosine annealing.
 opt = AutoSGM(
     model.parameters(),
-    lr_cfg=(True, 1e-3, 3),            # setup learning-rate (lr) algorithm
-    beta_cfg=(0.9999, 0.999, 0.9, 0.5528, 0, True), # setup  averaging (lr), and lowpass filtering (grad.)
+    lr_cfg=(True, 1e-2, 3),            # setup learning-rate (lr) algorithm
+    beta_cfg=(0.9999, 0.999, 0.9, 0.5528, 0, True), # setup filters: averaging, and grad smoothing
     rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0), # setup window (lr schedule)
     wd_cfg=(0.0, 0),                  # setup weight decay
     eps_cfg=(1e-10, True),            # setup numerical eps
@@ -106,15 +106,15 @@ opt.zero_grad()
 > Learning Rate (lr)
 - `lr_cfg` = (`aoptlr`, `lr_init`, `num_lrc`)
   - `aoptlr`: *bool*. (**True** | **False**) 
-    - **True**: use the iteration-dependent lr ratio function of a moment estimator, and a correlation estimator. 
-    - **False**: the learning rate constant `lr_init` is used as the learning rate.
-  - `lr_init`: *float*. trust-region constant used by the iteration-dependent learning rate variants when `aoptlr=True`
-  - `num_lrc`: *int*. (0,1,2,3,4) select the correlation estimator in the learning-rate ratio 
-    - *0*: moment estimator + correlation estimator always 1, 
-    - *1*: moment estimator + correlation estimator < 1, via a chebyshev-style correlation estimator
-    - *2*: moment estimator + max-bound correlation estimator
-    - *3*: moment estimator + markov-style correlation estimator.
-    - *4*: moment estimator + chebyshev-style correlation estimator.
+    - **True**: use the iteration-dependent ratio function of a moment estimator, and a correlation estimator as the learning rate. 
+    - **False**: use `lr_init` as a constant learning rate.
+  - `lr_init`: *float*. trust-region constant used by the iteration-dependent ratio function when `aoptlr=True`
+  - `num_lrc`: *int*. (0,1,2,3,4) choose a correlation estimator
+    - *0*: moment estimator + correlation estimator always 1 (baseline), 
+    - *1*: moment estimator + correlation estimator < 1, via a Chebyshev-style correlation estimator
+    - *2*: moment estimator + Max-bound correlation estimator
+    - *3*: moment estimator + Markov-style correlation estimator.
+    - *4*: moment estimator + Chebyshev-style correlation estimator.
 
 > Filtering (gradient smoothing (lowpass regularization) and exponential moving averages (EMAs))
 - `beta_cfg` = (`beta_n`, `beta_a`, `beta_i`, `gamma_i`, `eta_i`, `debias`)
@@ -136,17 +136,17 @@ opt.zero_grad()
 - `wd_cfg` = (`wd_cte`, `wd_lvl`)
   - `wd_cte`: *float*. weight-decay constant.
   - `wd_lvl`: *int*. decoupling level (**0**, **1**) 
-    - **0** parameter-level coupling of weight decay with gradient smoothing.
+    - **0** weight decay coupled to gradient before smoothing.
     - **1** parameter-level decoupling of weight decay from gradient smoothing.
 
 > Epsilon
 - `eps_cfg` = (`eps`, `repeat_eps`)
-  - `eps`: *float*. small positive value used for numerical stability against zero-division.
+  - `eps`: *float*. small positive constant used for numerical stability (avoid division by zero).
   - `repeat_eps`: *bool*. **True** | **False** indicates whether `eps` should be applied once or twice during gradient normalization.
 
 > Windowing (Learning-rate schedule)
 - `rc_cfg` = (`rcm`, `inseq`, `x`, `n`, `m`, `tau`, `spe`, `cfact`, e)
-  - `rcm`: *int*. window mode 
+  - `rcm`: *int*. window function (schedule type)
     - **0**: inactive, 
     - **1**: raised-cosine
     - **2**: linear/triangular
@@ -157,34 +157,26 @@ opt.zero_grad()
   - `inseq`: *int*. input sequence type 
     - **0**: uniform/rectangular, 
     - **1**: kronecker/randomized ordering.
-  - `x`: *float*. minimum fraction of unity
-    - Default is 0.
+  - `x`: *float*. minimum fraction of unity (default is 0).
   - `n`: shaping parameter for the window function selected via `rcm`
       - order. *int*  if selected `rcm` in {1, 2, 4}, 
       - decay rate. *float* if selected `rcm` in {3, 5, 6 }.
   - `m`: *int*. half window shape or full window envelope. 
-    - **1**: half, means: optionally flat-top -> anneal, 
-    - **0**: full, means: warm-up -> optionally flat-top -> anneal.
+    - **1**: half, means: flat-top -> anneal, 
+    - **0**: full, means: warm-up ->  flat-top -> anneal.
   - `tau >= 1`: *int*. number of epochs (used in computing window length depending on `cfact`).
   - `spe`: *int*. steps per epoch (iterations in one epoch).
     - For instance: `tau=1`, `spe=10000` means 10000 iterations in one epoch
   - `cfact`: *int*. (0,1,2,3,4). window's step unit 
     - **0**: step unit is per-epoch, 
     - **1**: step unit is per-iteration, 
-    - **2**: step unit is per-iteration in each epoch, then resets at the next epoch).
-  - `e`: *float*. flat-top coverage fraction of window, `0 <= e < 1`.
+    - **2**: step unit is per-iteration in each epoch (resets at each epoch).
+  - `e`: *float*. flat-top coverage fraction of the window, `0 <= e < 1`.
     - Default is 0.
     - For instance: `e=0.5`, and `m=1` means first-half of the window is flat-top constant, and then in the other-half of the window annealing is observed.
 
-<!-- Minimal tips
-- Starting point: enable aoptlr=True to use an iteration-dependent learning-rate and try out three different variants of the learning rate algorithm (0,2,3).
-- Enable rc_cfg windowing (rcm = 1); set tau and spe to match your number of training epochs and total training iterations per epoch; choose cfact according to whether you want the window to operate per-epoch or per-iteration.
-
-Where to look next
-- Inspect opts/asgm.py for details of the window functions (WINF, WINF_II) and the different numerator estimators (lrc_2, lrc_3) if you need to customize behavior.
-
-Questions / issues
-If something doesn't behave as you expect, open an issue in the repository with a minimal repro (model, optimizer config, and a few training steps). -->
+## Questions or issues
+If something doesn't behave as you expect, open an issue in the repository.
 
 
 
