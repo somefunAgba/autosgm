@@ -103,18 +103,18 @@ opt.zero_grad()
 ```
 
 ## Setups
-#### 1. Learning Rate (lr)
+> Learning Rate (lr)
 - `lr_cfg` = (`aoptlr`, `lr_init`, `num_lrc`)
   - `aoptlr`: *bool*. (**True**, **False**) 
-    - **True**: use an estimator iteration-dependent lr ratio (moment estimator, and optionally a correlation estimator). 
+    - **True**: use the iteration-dependent lr ratio function of a moment estimator, and a correlation estimator. 
     - **False**: the learning rate constant `lr_init` is used as the learning rate.
   - `lr_init`: *float*. trust-region constant used by the iteration-dependent learning rate variants when `aoptlr=True`
   - `num_lrc`: *int*. (0,1,2,3,4) select the correlation estimator in the learning-rate ratio 
-    - *0*, correlation estimator always 1, 
-    - *1* correlation estimator < 1, via a chebyshev-style correlation estimator
-    - *2* max-bound correlation estimator
-    - *3* markov-style correlation estimator.
-    - *4* chebyshev-style correlation estimator.
+    - *0*: moment estimator + correlation estimator always 1, 
+    - *1*: moment estimator + correlation estimator < 1, via a chebyshev-style correlation estimator
+    - *2*: moment estimator + max-bound correlation estimator
+    - *3*: moment estimator + markov-style correlation estimator.
+    - *4*: moment estimator + chebyshev-style correlation estimator.
 
 <!-- Notes on common config tuples
 - beta_cfg = (beta_n, beta_a, beta_i, gamma_i, eta_i, debias)
