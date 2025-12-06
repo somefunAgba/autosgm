@@ -105,7 +105,7 @@ opt.zero_grad()
 ## Setups
 > Learning Rate (lr)
 - `lr_cfg` = (`aoptlr`, `lr_init`, `num_lrc`)
-  - `aoptlr`: *bool*. (**True**, **False**) 
+  - `aoptlr`: *bool*. (**True** | **False**) 
     - **True**: use the iteration-dependent lr ratio function of a moment estimator, and a correlation estimator. 
     - **False**: the learning rate constant `lr_init` is used as the learning rate.
   - `lr_init`: *float*. trust-region constant used by the iteration-dependent learning rate variants when `aoptlr=True`
@@ -116,8 +116,8 @@ opt.zero_grad()
     - *3*: moment estimator + markov-style correlation estimator.
     - *4*: moment estimator + chebyshev-style correlation estimator.
 
-> Filtering (gradient smoothing and exponential moving averages, EMAs)
-- beta_cfg = (`beta_n`, `beta_a`, `beta_i`, `gamma_i`, `eta_i`, `debias`)
+> Filtering (gradient smoothing (lowpass regularization) and exponential moving averages (EMAs))
+- `beta_cfg` = (`beta_n`, `beta_a`, `beta_i`, `gamma_i`, `eta_i`, `debias`)
   - `beta_n`: *float*. filter pole for EMA used in correlation estimation (expects long-term memory, that is a `beta_n` close to  `1`)
     - default is **0.9999**
   - `beta_a`: *float*. filter pole for EMA used in moment estimation (expects long-term memory, that is a `beta_a` close to `1`)
@@ -129,8 +129,20 @@ opt.zero_grad()
     - **NAG**: set as `gamma_i=beta_i/(1+beta_i)`
   - `eta_i`: *float*. input normalization constant for the smoothing filter
     - note the default `eta_i=0`, the code sets it to `eta_i=1-beta_i`.
-  - `debias`: *bool*. (**True**, **False**) 
+  - `debias`: *bool*. (**True** | **False**) 
     - **True**, debias the filter output for improved transient-behavior (default).
+
+> Weight-decay (L2 regularization)
+- `wd_cfg` = (`wd_cte`, `wd_lvl`)
+  - `wd_cte`: *float*. weight-decay constant.
+  - `wd_lvl`: *int*. decoupling level (**0**, **1**) 
+    - **0** parameter-level coupling of weight decay with gradient smoothing.
+    - **1** parameter-level decoupling of weight decay from gradient smoothing.
+
+> Epsilon
+- `eps_cfg` = (`eps`, `repeat_eps`)
+  - `eps`: *float* small positive value used for numerical stability against zero-division.
+  - `repeat_eps`: *bool*: **True** | **False** indicates whether `eps` should be applied once or twice during gradient normalization.
 
 <!-- - rc_cfg = (rcm, inseq, x, n, m, tau, spe, cfact, e)
   - rcm: window mode (0=inactive, 1=raised-cosine, 2=tri/linear, 3=beta-exp, 4=simple-poly, 5=logistic, 6=other sigmoid).
@@ -142,14 +154,6 @@ opt.zero_grad()
   - spe: steps per epoch (iterations per epoch).
   - cfact: step unit (0=epoch, 1=iteration, 2=sub-iteration).
   - e: coverage fraction (flat-top), 0 <= e < 1.
-
-- wd_cfg = (wd_cte, wd_lvl)
-  - wd_cte: weight-decay (L2) constant.
-  - wd_lvl: decoupling level (0 uses classic parameter-level decay; 1 decouples weight decay from smoothing).
-
-- eps_cfg = (eps, repeat_eps)
-  - eps: small positive value added for numerical stability.
-  - repeat_eps: bool controlling whether eps is applied once or twice in normalization.
 
 Minimal tips
 - Starting point: enable aoptlr=True to use an iteration-dependent learning-rate and try out three different variants of the learning rate algorithm (0,2,3).
