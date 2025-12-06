@@ -167,14 +167,14 @@ opt.zero_grad()
     - **0**: full, means: warm-up -> optionally flat-top -> anneal.
   - `tau >= 1`: *int*. number of epochs (used in computing window length depending on `cfact`).
   - `spe`: *int*. steps per epoch (iterations in one epoch).
-   - `tau=1`, `spe=10000` means 10000 iterations in one epoch
+    - For instance: `tau=1`, `spe=10000` means 10000 iterations in one epoch
   - `cfact`: *int*. (0,1,2,3,4). window's step unit 
     - **0**: step unit is per-epoch, 
     - **1**: step unit is per-iteration, 
     - **2**: step unit is per-iteration in each epoch, then resets at the next epoch).
   - `e`: *float*. flat-top coverage fraction of window, `0 <= e < 1`.
     - Default is 0.
-    - `e=0.5`, and `m=1` means first-half of the window is flat-top constant, and then in the other-half of the window annealing is observed.
+    - For instance: `e=0.5`, and `m=1` means first-half of the window is flat-top constant, and then in the other-half of the window annealing is observed.
 
 <!-- Minimal tips
 - Starting point: enable aoptlr=True to use an iteration-dependent learning-rate and try out three different variants of the learning rate algorithm (0,2,3).
