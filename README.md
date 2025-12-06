@@ -141,21 +141,42 @@ opt.zero_grad()
 
 > Epsilon
 - `eps_cfg` = (`eps`, `repeat_eps`)
-  - `eps`: *float* small positive value used for numerical stability against zero-division.
-  - `repeat_eps`: *bool*: **True** | **False** indicates whether `eps` should be applied once or twice during gradient normalization.
+  - `eps`: *float*. small positive value used for numerical stability against zero-division.
+  - `repeat_eps`: *bool*. **True** | **False** indicates whether `eps` should be applied once or twice during gradient normalization.
 
-<!-- - rc_cfg = (rcm, inseq, x, n, m, tau, spe, cfact, e)
-  - rcm: window mode (0=inactive, 1=raised-cosine, 2=tri/linear, 3=beta-exp, 4=simple-poly, 5=logistic, 6=other sigmoid).
-  - inseq: input sequence type (0=uniform/rectangular, 1=kronecker/randomized ordering).
-  - x: minimum fraction of function max (fmin = x * fmax).
-  - n: shape parameter used by many window shapes (order, decay rate, etc.).
-  - m: half/full mode (1=half/anneal-only, 0=full-window).
-  - tau: number of epochs (or used in computing window length depending on cfact).
-  - spe: steps per epoch (iterations per epoch).
-  - cfact: step unit (0=epoch, 1=iteration, 2=sub-iteration).
-  - e: coverage fraction (flat-top), 0 <= e < 1.
+> Windowing (Learning-rate schedule)
+- `rc_cfg` = (`rcm`, `inseq`, `x`, `n`, `m`, `tau`, `spe`, `cfact`, e)
+  - `rcm`: *int*. window mode 
+    - **0**: inactive, 
+    - **1**: raised-cosine
+    - **2**: linear/triangular
+    - **3**: exponential (parameterized), 
+    - **4**: simple-polynomial
+    - **5**: logistic-sigmoid, 
+    - **6**: sigmoid.
+  - `inseq`: *int*. input sequence type 
+    - **0**: uniform/rectangular, 
+    - **1**: kronecker/randomized ordering.
+  - `x`: *float*. minimum fraction of unity
+    - Default is 0.
+  - `n`: shaping parameter for the window function selected via `rcm`
+      - order. *int*  if selected `rcm` in {1, 2, 4}, 
+      - decay rate. *float* if selected `rcm` in {3, 5, 6 }.
+  - `m`: *int*. half window shape or full window envelope. 
+    - **1**: half, means: optionally flat-top -> anneal, 
+    - **0**: full, means: warm-up -> optionally flat-top -> anneal.
+  - `tau >= 1`: *int*. number of epochs (used in computing window length depending on `cfact`).
+  - `spe`: *int*. steps per epoch (iterations in one epoch).
+   - `tau=1`, `spe=10000` means 10000 iterations in one epoch
+  - `cfact`: *int*. (0,1,2,3,4). window's step unit 
+    - **0**: step unit is per-epoch, 
+    - **1**: step unit is per-iteration, 
+    - **2**: step unit is per-iteration in each epoch, then resets at the next epoch).
+  - `e`: *float*. flat-top coverage fraction of window, `0 <= e < 1`.
+    - Default is 0.
+    - `e=0.5`, and `m=1` means first-half of the window is flat-top constant, and then in the other-half of the window annealing is observed.
 
-Minimal tips
+<!-- Minimal tips
 - Starting point: enable aoptlr=True to use an iteration-dependent learning-rate and try out three different variants of the learning rate algorithm (0,2,3).
 - Enable rc_cfg windowing (rcm = 1); set tau and spe to match your number of training epochs and total training iterations per epoch; choose cfact according to whether you want the window to operate per-epoch or per-iteration.
 
