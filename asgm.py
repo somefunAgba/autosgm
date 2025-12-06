@@ -1226,7 +1226,7 @@ class AutoSGM(Optimizer):
     def a2(self, lr0, betas, t, w, gn, s):
         '''[relaxed upbnd.] par-corr. variant
 
-        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes an EMA estimate of the maximum partial-correlation relaxed by `lr0`. Ensuring that the effective estimate remains within the trust-region envelope, the resulting EMA estimate is clipped within `[0, lr0]`, Finally, the estimates are averaged across the layer to yield a single, robust par-corr estimate.      
+        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes an EMA estimate of the maximum partial-correlation relaxed by `lr0`. Ensuring that the effective estimate remains within the trust-region envelope, the resulting EMA estimate is clipped within `[0, lr0]`, Finally, the estimates are averaged across the layer to yield a single, uniform estimate.      
         '''
         # safes: clip (in + out), take mean
         out, s = _lpf_can(s, (_sq(w)+_sq(gn))*lr0, t, betas[0])
@@ -1235,7 +1235,7 @@ class AutoSGM(Optimizer):
     def a3(self, lr0m, betas, t, w, gn, wsq, s, pcx, pcv, gpow):
         '''[robust-markov] par-corr. est.
         
-        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes a robust EMA estimate of the partial-correlation via a Huber-transformed weight-gradient product `w*gn` relative to its expected magnitude `pcx`. To ensure that the effective estimate remains within the trust-region envelope, a Tukey-transform is additionally used to clip the resulting EMA estimate to be within `[0, lr0*(1+E[wsq])]`, Finally, the estimates are averaged across the layer to yield a single, robust par-corr estimate.     
+        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes a robust EMA estimate of the partial-correlation via a Huber-transformed weight-gradient product `w*gn` relative to its expected magnitude `pcx`. To ensure that the effective estimate remains within the trust-region envelope, a Tukey-transform is additionally used to clip the resulting EMA estimate to be within `[0, lr0*(1+E[wsq])]`, Finally, the estimates are averaged across the layer to yield a single, uniform estimate.     
         '''
         # markov-style: clip input
         inp = lr0m * _hub_mark_v(w*gn, pcx, t, betas[0], self.cf, self.eps)
@@ -1249,7 +1249,7 @@ class AutoSGM(Optimizer):
     def a4(self, lr0m, betas, t, w, gn, wsq, s, pcx, pcv, gpow):
         '''[robust-cheb] par-corr. est.
         
-        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes a robust EMA estimate of the partial-correlation via a Huber-transformed weight-gradient product `w*gn` relative to its expected magnitude `pcx` and variance `pcv`. To ensure that the effective estimate remains within the trust-region envelope, a Tukey-transform is additionally used to clip the resulting EMA estimate to be within `[0, lr0*(1+E[wsq])]`, Finally, the estimates are averaged across the layer to yield a single, robust par-corr estimate.     
+        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes a robust EMA estimate of the partial-correlation via a Huber-transformed weight-gradient product `w*gn` relative to its expected magnitude `pcx` and variance `pcv`. To ensure that the effective estimate remains within the trust-region envelope, a Tukey-transform is additionally used to clip the resulting EMA estimate to be within `[0, lr0*(1+E[wsq])]`, Finally, the estimates are averaged across the layer to yield a single, uniform estimate.     
         '''
         # chebyshev-style: clip input
         inp = lr0m * _hub_cheb_v1(w*gn, pcx, pcv, t, betas[0], 1, self.eps)

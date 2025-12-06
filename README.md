@@ -102,12 +102,21 @@ opt.step()
 opt.zero_grad()
 ```
 
-<!-- Notes on common config tuples
-- lr_cfg = (aoptlr, lr_init, num_lrc)
-  - aoptlr: bool. If True, AutoSGM uses an iteration-dependent optimal lr (moment estimation + partial-correlation estimation). If False, lr_init is used as a constant learning rate.
-  - lr_init: float. trust-region constant used by the iteration-dependent learning rate variants when aoptlr=True or the constant lr when aoptlr=False.
-  - num_lrc: int. Variant selector for the partial-correlation numerator estimator (0 for a fixed estimate, but 2 and 3 gives iteration-dependent estimates ).
+## Setups
+#### 1. Learning Rate (lr)
+- `lr_cfg` = (`aoptlr`, `lr_init`, `num_lrc`)
+  - `aoptlr`: *bool*. (**True**, **False**) 
+    - **True**: use an estimator iteration-dependent lr ratio (moment estimator, and optionally a correlation estimator). 
+    - **False**: the learning rate constant `lr_init` is used as the learning rate.
+  - `lr_init`: *float*. trust-region constant used by the iteration-dependent learning rate variants when `aoptlr=True`
+  - `num_lrc`: *int*. (0,1,2,3,4) select the correlation estimator in the learning-rate ratio 
+    - *0*, correlation estimator always 1, 
+    - *1* correlation estimator < 1, via a chebyshev-style correlation estimator
+    - *2* max-bound correlation estimator
+    - *3* markov-style correlation estimator.
+    - *4* chebyshev-style correlation estimator.
 
+<!-- Notes on common config tuples
 - beta_cfg = (beta_n, beta_a, beta_i, gamma_i, eta_i, debias)
   - beta_n, beta_a, beta_i: smoothing pole constants for internal EMAs and filters.
   - gamma_i: zero/predictive term for the smoothing filter (0 for HB, appropriate value for NAG-like behavior).
