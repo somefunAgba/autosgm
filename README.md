@@ -149,16 +149,16 @@ opt.zero_grad()
   - `rcm`: *int*. window function (schedule type)
     - **0**: inactive, flat, 
     - **1**: raised-cosine
-      -  n >= 1, standard cosine annealing (n=2, m=1), recommended, small n, n < 4
+      -  `n >= 1`, standard cosine annealing (`n=2`, `m=1`), recommended, small `n`, `n < 4`
     - **2**: polynomial 
-      - linear decay if n=1, m=1 or triangular if n=1, m=0
+      - linear decay (`n=1`, `m=1`) or triangular if (`n=1`, `m=0`)
     - **3**: exponential (parameterized), 
     - **4**: simple-polynomial
-      -  n >=1, recommended 1 < n < 20
+      -  `n >=1`, recommended `1 < n < 20`
     - **5**: logistic-sigmoid, mid-inflection 
-      - n > 0, recommended, small n less than 10
+      - `n > 0`, recommended, small `n`, less than 10
     - **6**: logistic-sigmoid, late-inflection 
-      - n > 0, recommended, small n less than 10
+      - `n > 0`, recommended, small `n`, less than 10
   - `inseq`: *int*. input sequence type 
     - **0**: uniform/rectangular, 
     - **1**: kronecker/randomized ordering.
@@ -170,7 +170,7 @@ opt.zero_grad()
     - **1**: half, means: flat-top -> anneal, 
     - **0**: full, means: warm-up ->  flat-top -> anneal.
   - `tau >= 1`: *int*. number of epochs (used in computing window length depending on `cfact`).
-    - no epoch is the same as 1 epoch.
+    - `tau=1` means either no epoch one epoch.
   - `spe`: *int*. steps per epoch (iterations in one epoch).
     - For instance: `tau=1`, `spe=10000` means 10000 iterations in one epoch
   - `cfact`: *int*. (0,1,2,3,4). window's step unit 
