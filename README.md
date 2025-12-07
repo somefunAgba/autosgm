@@ -51,7 +51,7 @@ beta = 0 # off
 
 
 # Instance: Plain SGM, constant lr 1E-3, coupled weight-decay
-opt1 = AutoSGM(
+opt0 = AutoSGM(
     model.parameters(),
     lr_cfg=(False, 1e-3, 0),  
     beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
@@ -66,8 +66,8 @@ opt1 = AutoSGM(
 # 2. activate windowing, via cosine annealing as the lr schedule,
 # The rest of the configuration remains the same, except in rc_cfg.
 
-# Instance: Plain, Adam, standard cosine annealing, coupled weight-decay
-opt2 = AutoSGM(
+# Instance: Plain, moment estimation, standard cosine annealing, coupled weight-decay
+opt1 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
     beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
@@ -82,7 +82,7 @@ beta = 0.9 # activated
 # 4. use decoupled weight-decay,
 # The rest of the configuration remains the same, except in wd_cfg.
 
-# Instance: PHB, Adam, standard cosine annealing, decoupled weight-decay
+# Instance: PHB, moment estimation, standard cosine annealing, decoupled weight-decay
 opt2 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
@@ -97,7 +97,7 @@ opt2 = AutoSGM(
 # The rest of the configuration remains the same, except in beta_cfg.
 gamma = beta/(1+beta) # ~ 0.47
 
-# Instance: NAG, Adam, standard cosine annealing, decoupled weight-decay
+# Instance: NAG, moment estimation, standard cosine annealing, decoupled weight-decay
 opt3 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
@@ -124,6 +124,8 @@ opt4 = AutoSGM(
 # 7. use neither PHB nor NAG: adjust the filter's zero location <= beta 
 # The rest of the configuration remains the same, except in beta_cfg.
 gamma = 1 - math.sqrt(2*(1-beta)) # ~ 0.55
+# 8. enable a partial-correlation estimation, in addition to moment estimation, 
+# The rest of the configuration remains the same, except in lr_cfg.
 
 # Instance: linear decay, decoupled weight-decay
 opt5 = AutoSGM(
@@ -220,7 +222,7 @@ opt.zero_grad()
     - **True**: use the iteration-dependent ratio function of a moment estimator, and a correlation estimator as the learning rate. 
     - **False**: use `lr_init` as a constant learning rate.
   - `lr_init`: *float*. trust-region constant used by the iteration-dependent ratio function when `aoptlr=True`
-  - `num_lrc`: *int*. (0,1,2,3,4) select numerator or a partial-correlation estimator for the ratio function
+  - `num_lrc`: *int*. (0,1,2,3,4) select numerator or a partial-correlation (**parcor**) estimator for the ratio function
     - *0*: robust moment estimator + simple correlation-like term = 1 (baseline). 
     - *1*: robust moment estimator + simple correlation-like term <= 1. Huber-Chebyshev variant (more robust than *0*).
     - *2*: robust moment estimator + correlation estimator. Relaxed upper-bound variant
