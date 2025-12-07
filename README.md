@@ -6,12 +6,17 @@
 </p>
 
 -  **Momentum** in (Polyak's Heavy Ball, **PHB** and Nesterov's Accelerated Gradient, **NAG**) are <a href="https://somefunagba.github.io/asgm_qsim" target="_blank"> **points in the design space**</a> of a **first-order lowpass filter**
-- **Moment estimation** (or Adaptive Moment Estimation **Adam**) of the gradient is part of an optimal iteration-dependent *learning rate* function.
+
+- **Moment estimation** ( that is Adaptive Moment Estimation **Adam**) of the gradient's moment is part of an optimal iteration-dependent *learning rate* function.
 
 - The ratio-function of a **correlation estimator** and a **moment estimator** is an optimal iteration-dependent learning rate oracle.
+
 - Smoothing the gradient via the **first-order lowpass filter** is approximately smoothing the loss function, so its primary function is regularization not acceleration.
+
 - In general, under a first-order filtering of the gradient, and choice of an iteration-dependent learning rate, the <a href="https://somefunagba.github.io/learning_dynamics" target="_blank">**stochastic gradient learning dynamics**</a> is that of a **first-order linear time (iteration) varying (LTV) filter** in the parameter-change level.
+
 - Characterize **stability** properties of the stochastic gradient learning dynamics.
+
 - Both **standard** weight-decay and **decoupled** weight-decay are **coupled damping** terms in the parameter-change level.
 
 > [!NOTE]
