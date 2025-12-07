@@ -33,6 +33,7 @@
 ## Example Instances — Playing with the Framework
 The common configurations are explained in [Setups](#setups).
 ```python
+import math
 from asgm import AutoSGM
 
 # lr_cfg - setup learning-rate (lr) algorithm
@@ -41,14 +42,15 @@ from asgm import AutoSGM
 # eps_cfg - setup numerical eps
 # wd_cfg - setup weight decay
 
+# training length
 num_epochs = 1
 iters_per_epoch = int(1E9)
 
-# [smoothing] lowpass filter's pole
-beta = 0.9 
+# [gradient smoothing] lowpass filter's pole
+beta = 0 # off
 
 
-# Instance1: HB, constant lr 1E-3, coupled weight-decay
+# Instance: Plain SGM, constant lr 1E-3, coupled weight-decay
 opt1 = AutoSGM(
     model.parameters(),
     lr_cfg=(False, 1e-3, 0),  
@@ -57,13 +59,30 @@ opt1 = AutoSGM(
     eps_cfg=(1e-8, False) 
 )
 
-# We can decide to 
+# We decide to:
+
 # 1. use moment estimation as part of the lr, 
-# # The rest of the configuration remains the same, except in lr_cfg.
-# 2. use cosine annealing as the lr schedule ,
+# The rest of the configuration remains the same, except in lr_cfg.
+# 2. activate windowing, via cosine annealing as the lr schedule,
 # The rest of the configuration remains the same, except in rc_cfg.
 
-# Instance: HB, Adam, standard cosine annealing, decoupled weight-decay
+# Instance: Plain, Adam, standard cosine annealing, coupled weight-decay
+opt2 = AutoSGM(
+    model.parameters(),
+    lr_cfg=(True, 1e-3, 0),  
+    beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
+    rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0),
+    wd_cfg=(1e-2, 0),   
+    eps_cfg=(1e-8, False) 
+)
+
+# 3. activate gradient smoothing, 
+# The rest of the configuration remains the same, except in beta_cfg.
+beta = 0.9 # activated
+# 4. use decoupled weight-decay,
+# The rest of the configuration remains the same, except in wd_cfg.
+
+# Instance: PHB, Adam, standard cosine annealing, decoupled weight-decay
 opt2 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
@@ -73,27 +92,44 @@ opt2 = AutoSGM(
     eps_cfg=(1e-8, False) 
 )
 
-# If we adjust the filter's zero from 0 to beta_i / (1 + beta_i), we have NAG. 
+
+# 5. use NAG: adjust the filter's zero location from 0 to beta / (1 + beta)
 # The rest of the configuration remains the same, except in beta_cfg.
+gamma = beta/(1+beta) # ~ 0.47
 
 # Instance: NAG, Adam, standard cosine annealing, decoupled weight-decay
 opt3 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
-    beta_cfg=(0.9999, 0.999, beta, beta/(1+beta), 0, True),
+    beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
     rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0),
     wd_cfg=(1e-2, 1), 
     eps_cfg=(1e-8, False)   
 )
 
-# We can decide to use a different window as the lr schedule  
+# 6. decide to use a different window as the lr schedule  
 # The rest of the configuration remains the same, except in rc_cfg.
 
 # Instance: NAG, Adam, linear decay, decoupled weight-decay
 opt4 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
-    beta_cfg=(0.9999, 0.999, beta, beta/(1+beta), 0, True),
+    beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
+    rc_cfg=(2, 0, 0, 1, 1, num_epochs, iters_epoch, 1, 0),
+    wd_cfg=(1e-2, 1), 
+    eps_cfg=(1e-8, False)   
+)
+
+
+# 7. use neither PHB nor NAG: adjust the filter's zero location <= beta 
+# The rest of the configuration remains the same, except in beta_cfg.
+gamma = 1 - math.sqrt(2*(1-beta)) # ~ 0.55
+
+# Instance: linear decay, decoupled weight-decay
+opt5 = AutoSGM(
+    model.parameters(),
+    lr_cfg=(True, 1e-3, 1),  
+    beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
     rc_cfg=(2, 0, 0, 1, 1, num_epochs, iters_epoch, 1, 0),
     wd_cfg=(1e-2, 1), 
     eps_cfg=(1e-8, False)   
