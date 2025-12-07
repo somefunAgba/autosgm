@@ -11,7 +11,7 @@
 - The ratio-function of a **correlation estimator** and a **moment estimator** is an optimal iteration-dependent learning rate oracle.
 - Smoothing the gradient via the **first-order lowpass filter** is approximately smoothing the loss function, so its primary function is regularization not acceleration.
 - In general, under a first-order filtering of the gradient, and choice of an iteration-dependent learning rate, the <a href="https://somefunagba.github.io/learning_dynamics" target="_blank">**stochastic gradient learning dynamics**</a> is that of a **first-order linear time (iteration) varying (LTV) filter** at the parameter-change level.
-- Characterize the **stability** of the stochastic gradient learning dynamics.
+- Characterize **stability** properties of the stochastic gradient learning dynamics.
 - Generalize the interpretation of **decoupled** weight-decay as **L2 regularization** at the parameter-change level.
 
 <!-- Automatic (Stochastic) Gradient Method (SGM) is a <b>framework</b> for stochastic gradient learning that unifies the three popular momentum-based algorithms: (Polyak's Heavy Ball (<b>PHB</b>), Nesterov's Accelerated Gradient (<b>NAG</b>), Adaptive Moment Estimation (<b>Adam</b>)) used in deep learning. -->
@@ -24,9 +24,73 @@
 
 <img align="center" src="./asgm_basic_blk.png" width="700">   
 
+> This AutoSGM implementation allows researchers and developers to play with several variations of the stochastic gradient algorithm, as they have been called, 
+> such as Polyak’s Heavy Ball (PHB), Nesterov’s Accelerated Gradient (NAG), and Adam.
+
+> By treating these methods as points in a design space of first-order filters and iteration-dependent learning rates, this framework makes it easier to explore how changes in smoothing, and learning rates affect training stability and performance.
 
 
-## Examples
+## Example Instances — Playing with the Framework
+The common configurations are explained in [Setups](#setups).
+```python
+from asgm import AutoSGM
+
+# lr_cfg - setup learning-rate (lr) algorithm
+# beta_cfg - setup filters: averaging, and grad smoothing
+# rc_cfg - setup window (lr schedule)
+# eps_cfg - setup numerical eps
+# wd_cfg - setup weight decay
+
+num_epochs = 1
+iters_per_epoch = int(1E9)
+
+# [smoothing] lowpass filter's pole
+beta = 0.9 
+
+
+# Instance1: HB, constant lr, coupled weight-decay
+opt1 = AutoSGM(
+    model.parameters(),
+    lr_cfg=(False, 1e-3, 0),  
+    beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
+    wd_cfg=(1e-2, 0),   
+    eps_cfg=(1e-8, False) 
+)
+
+
+# Instance: HB, Adam, standard cosine annealing, decoupled weight-decay
+opt2 = AutoSGM(
+    model.parameters(),
+    lr_cfg=(True, 1e-3, 0),  
+    beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
+    rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0),
+    wd_cfg=(1e-2, 1),   
+    eps_cfg=(1e-8, False) 
+)
+
+# Instance: NAG, Adam, standard cosine annealing, decoupled weight-decay
+opt3 = AutoSGM(
+    model.parameters(),
+    lr_cfg=(True, 1e-3, 0),  
+    beta_cfg=(0.9999, 0.999, beta, beta/(1+beta), 0, True),
+    rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0),
+    wd_cfg=(1e-2, 1), 
+    eps_cfg=(1e-8, False)   
+)
+
+# Instance: NAG, Adam, linear decay, decoupled weight-decay
+opt4 = AutoSGM(
+    model.parameters(),
+    lr_cfg=(True, 1e-3, 0),  
+    beta_cfg=(0.9999, 0.999, beta, beta/(1+beta), 0, True),
+    rc_cfg=(2, 0, 0, 1, 1, num_epochs, iters_epoch, 1, 0),
+    wd_cfg=(1e-2, 1), 
+    eps_cfg=(1e-8, False)   
+)
+
+```
+
+## Results [Paper]
 Using Adam as a fixed learning-rate numerator (colored **red**) baseline for the fuller iteration-dependent learning rate (colored **blue**), we tested the AutoSGM framework on CIFAR-10 image-classifcation (ViT, ResNet) and language modeling (GPT-2 on WikiText-103 and Shakespeare-char) tasks.
 
 Results: The **blue** curves mostly outperformed **red** curves, across several zero locations ($\gamma$) of the first-order lowpass filter.
@@ -68,7 +132,7 @@ Here in this [README.md](README.md), we provide some instructions to run the [co
 
 
 ## Disclaimer
-The `code` and `style` in this repository is still undergoing `active` development as part of my `PhD` work. Feel free to raise an `issue`, if you detect any `bug` or you have any questions.
+`Code` and `style` in this repository is still undergoing `active` development as part of my `PhD` work. Feel free to raise an `issue`, if you detect any `bug` or you have any questions.
 
 ## Minimal Example — Playing with the Framework
 This section shows a minimal, easy-to-follow example of using the AutoSGM implementation with a PyTorch model and lists the most important configuration options.
@@ -145,7 +209,7 @@ opt.zero_grad()
   - `repeat_eps`: *bool*. **True** | **False** indicates whether `eps` should be applied once or twice during gradient normalization.
 
 > Windowing (Learning-rate schedule)
-- `rc_cfg` = (`rcm`, `inseq`, `x`, `n`, `m`, `tau`, `spe`, `cfact`, e)
+- `rc_cfg` = (`rcm`, `inseq`, `x`, `n`, `m`, `tau`, `spe`, `cfact`, `e`)
   - `rcm`: *int*. window function (schedule type)
     - **0**: inactive, flat, 
     - **1**: raised-cosine
