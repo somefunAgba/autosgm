@@ -111,7 +111,7 @@ opt.zero_grad()
   - `lr_init`: *float*. trust-region constant used by the iteration-dependent ratio function when `aoptlr=True`
   - `num_lrc`: *int*. (0,1,2,3,4) select numerator or a partial-correlation estimator for the ratio function
     - *0*: robust moment estimator + simple correlation-like term = 1 (baseline). 
-    - *1*: robust moment estimator + simple correlation-like term <= 1. Huber-Chebyshev variant (better or similar to using *0*).
+    - *1*: robust moment estimator + simple correlation-like term <= 1. Huber-Chebyshev variant (robustifies *0*).
     - *2*: robust moment estimator + correlation estimator. Relaxed upper-bound variant
     - *3*: robust moment estimator + correlation estimator. Huber-Markov-variant
     - *4*: robust moment estimator + correlation estimator. Huber-Chebyshev variant
