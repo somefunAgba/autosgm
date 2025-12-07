@@ -147,24 +147,30 @@ opt.zero_grad()
 > Windowing (Learning-rate schedule)
 - `rc_cfg` = (`rcm`, `inseq`, `x`, `n`, `m`, `tau`, `spe`, `cfact`, e)
   - `rcm`: *int*. window function (schedule type)
-    - **0**: inactive, 
+    - **0**: inactive, flat, 
     - **1**: raised-cosine
-    - **2**: linear/triangular
+      -  n >= 1, standard cosine annealing (n=2, m=1), recommended, small n, n < 4
+    - **2**: polynomial 
+      - linear decay if n=1, m=1 or triangular if n=1, m=0
     - **3**: exponential (parameterized), 
     - **4**: simple-polynomial
-    - **5**: logistic-sigmoid, 
-    - **6**: sigmoid.
+      -  n >=1, recommended 1 < n < 20
+    - **5**: logistic-sigmoid, mid-inflection 
+      - n > 0, recommended, small n less than 10
+    - **6**: logistic-sigmoid, late-inflection 
+      - n > 0, recommended, small n less than 10
   - `inseq`: *int*. input sequence type 
     - **0**: uniform/rectangular, 
     - **1**: kronecker/randomized ordering.
   - `x`: *float*. minimum fraction of unity (default is 0).
-  - `n`: shaping parameter for the window function selected via `rcm`
-      - order. *int*  if selected `rcm` in {1, 2, 4}, 
-      - decay rate. *float* if selected `rcm` in {3, 5, 6 }.
+  - `n`: shaping parameter for the window function `rcm`
+      - order. *int | float*  if `rcm` in {1, 2, 4, 5, 6}, 
+      - decay rate. *float* if `rcm` in {3, }.
   - `m`: *int*. half window shape or full window envelope. 
     - **1**: half, means: flat-top -> anneal, 
     - **0**: full, means: warm-up ->  flat-top -> anneal.
   - `tau >= 1`: *int*. number of epochs (used in computing window length depending on `cfact`).
+    - no epoch is the same as 1 epoch.
   - `spe`: *int*. steps per epoch (iterations in one epoch).
     - For instance: `tau=1`, `spe=10000` means 10000 iterations in one epoch
   - `cfact`: *int*. (0,1,2,3,4). window's step unit 
