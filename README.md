@@ -170,7 +170,7 @@ opt.zero_grad()
     - **1**: half, means: flat-top -> anneal, 
     - **0**: full, means: warm-up ->  flat-top -> anneal.
   - `tau >= 1`: *int*. number of epochs (used in computing window length depending on `cfact`).
-    - `tau=1` means either no epoch one epoch.
+    - `tau=1` means one epoch. `tau` should be set as `1` if training is only in iterations.
   - `spe`: *int*. steps per epoch (iterations in one epoch).
     - For instance: `tau=1`, `spe=10000` means 10000 iterations in one epoch
   - `cfact`: *int*. (0,1,2,3,4). window's step unit 
