@@ -14,6 +14,7 @@
 - Characterize **stability** properties of the stochastic gradient learning dynamics.
 - Both **standard** weight-decay and **decoupled** weight-decay are **coupled damping** terms in the parameter-change level.
 
+> [!NOTE]
 > Parameter-change level is simply the path the stochastic gradient algorithm takes the actual parameter update through during learning.
 <!-- Automatic (Stochastic) Gradient Method (SGM) is a <b>framework</b> for stochastic gradient learning that unifies the three popular momentum-based algorithms: (Polyak's Heavy Ball (<b>PHB</b>), Nesterov's Accelerated Gradient (<b>NAG</b>), Adaptive Moment Estimation (<b>Adam</b>)) used in deep learning. -->
 
