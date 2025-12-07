@@ -70,7 +70,7 @@ Here in this [README.md](README.md), we provide some instructions to run the [co
 ## Disclaimer
 The `code` and `style` in this repository is still undergoing `active` development as part of my `PhD` work. Feel free to raise an `issue`, if you detect any `bug` or you have any questions.
 
-## Minimal example — Using AutoSGM
+## Minimal Example — Playing with the Framework
 This section shows a minimal, easy-to-follow example of using the AutoSGM implementation with a PyTorch model and lists the most important configuration options.
 
 ```python
@@ -111,7 +111,7 @@ opt.zero_grad()
   - `lr_init`: *float*. trust-region constant used by the iteration-dependent ratio function when `aoptlr=True`
   - `num_lrc`: *int*. (0,1,2,3,4) select numerator or a partial-correlation estimator for the ratio function
     - *0*: robust moment estimator + simple correlation-like term = 1 (baseline). 
-    - *1*: robust moment estimator + simple correlation-like term <= 1. Huber-Chebyshev variant.
+    - *1*: robust moment estimator + simple correlation-like term <= 1. Huber-Chebyshev variant (mostly better than *0*).
     - *2*: robust moment estimator + correlation estimator. Relaxed upper-bound variant
     - *3*: robust moment estimator + correlation estimator. Huber-Markov-variant
     - *4*: robust moment estimator + correlation estimator. Huber-Chebyshev variant
