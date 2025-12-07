@@ -12,8 +12,9 @@
 - Smoothing the gradient via the **first-order lowpass filter** is approximately smoothing the loss function, so its primary function is regularization not acceleration.
 - In general, under a first-order filtering of the gradient, and choice of an iteration-dependent learning rate, the <a href="https://somefunagba.github.io/learning_dynamics" target="_blank">**stochastic gradient learning dynamics**</a> is that of a **first-order linear time (iteration) varying (LTV) filter** at the parameter-change level.
 - Characterize **stability** properties of the stochastic gradient learning dynamics.
-- Both **standard** weight-decay and **decoupled** weight-decay are **coupled regularization** at the parameter-change level.
+- Both **standard** weight-decay and **decoupled** weight-decay are **coupled damping** terms in the parameter-change level.
 
+> Parameter-change level is simply the path the stochastic gradient algorithm takes the actual parameter update through during learning.
 <!-- Automatic (Stochastic) Gradient Method (SGM) is a <b>framework</b> for stochastic gradient learning that unifies the three popular momentum-based algorithms: (Polyak's Heavy Ball (<b>PHB</b>), Nesterov's Accelerated Gradient (<b>NAG</b>), Adaptive Moment Estimation (<b>Adam</b>)) used in deep learning. -->
 
 <!-- Given a gradient-generating system like a deep neural network, the AutoSGM framework exposes the exact update trajectory of each trainable parameter via the stochastic gradient algorithm under a **lowpass filter** (momentum) and **iteration-dependent learning-rate** oracle as the dynamics of a **first-order linear time (iteration) varying (LTV) filter**. -->
