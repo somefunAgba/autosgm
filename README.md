@@ -48,7 +48,7 @@ iters_per_epoch = int(1E9)
 beta = 0.9 
 
 
-# Instance1: HB, constant lr, coupled weight-decay
+# Instance1: HB, constant lr 1E-3, coupled weight-decay
 opt1 = AutoSGM(
     model.parameters(),
     lr_cfg=(False, 1e-3, 0),  
@@ -57,6 +57,11 @@ opt1 = AutoSGM(
     eps_cfg=(1e-8, False) 
 )
 
+# We can decide to 
+# 1. use moment estimation as part of the lr, 
+# # The rest of the configuration remains the same, except in lr_cfg.
+# 2. use cosine annealing as the lr schedule ,
+# The rest of the configuration remains the same, except in rc_cfg.
 
 # Instance: HB, Adam, standard cosine annealing, decoupled weight-decay
 opt2 = AutoSGM(
@@ -68,6 +73,9 @@ opt2 = AutoSGM(
     eps_cfg=(1e-8, False) 
 )
 
+# If we adjust the filter's zero from 0 to beta_i / (1 + beta_i), we have NAG. 
+# The rest of the configuration remains the same, except in beta_cfg.
+
 # Instance: NAG, Adam, standard cosine annealing, decoupled weight-decay
 opt3 = AutoSGM(
     model.parameters(),
@@ -77,6 +85,9 @@ opt3 = AutoSGM(
     wd_cfg=(1e-2, 1), 
     eps_cfg=(1e-8, False)   
 )
+
+# We can decide to use a different window as the lr schedule  
+# The rest of the configuration remains the same, except in rc_cfg.
 
 # Instance: NAG, Adam, linear decay, decoupled weight-decay
 opt4 = AutoSGM(
@@ -132,7 +143,7 @@ Here in this [README.md](README.md), we provide some instructions to run the [co
 
 
 ## Disclaimer
-`Code` and `style` in this repository is still undergoing `active` development as part of my `PhD` work. Feel free to raise an `issue`, if you detect any `bug` or you have any questions.
+`Code` and `style` in this repository is under `active` development. Feel free to raise a `issue`, if you detect any `bug` or you have any questions.
 
 ## Minimal Example — Playing with the Framework
 This section shows a minimal, easy-to-follow example of using the AutoSGM implementation with a PyTorch model and lists the most important configuration options.
