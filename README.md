@@ -263,12 +263,12 @@ opt.zero_grad()
     - **True**: use the iteration-dependent ratio function of a moment estimator, and a correlation estimator as the learning rate. 
     - **False**: use `lr_init` as a constant learning rate.
   - `lr_init`: *float*. trust-region constant used by the iteration-dependent ratio function when `aoptlr=True`
-  - `num_lrc`: *int*. (0,1,2,3,4) select numerator or a partial-correlation (**parcor**) estimator for the ratio function
+  - `num_lrc`: *int*. (0,1,2,3,4) select numerator or a partial-correlation (**par-cor**) estimator for the ratio function
     - *0*: robust moment estimator + simple correlation-like term = 1 (baseline). 
     - *1*: robust moment estimator + simple correlation-like term <= 1. Huber-Chebyshev variant (more robust than *0*).
-    - *2*: robust moment estimator + correlation estimator. Relaxed upper-bound variant
-    - *3*: robust moment estimator + correlation estimator. Huber-Markov-variant
-    - *4*: robust moment estimator + correlation estimator. Huber-Chebyshev variant
+    - *2*: robust moment estimator + correlation-like estimator. Relaxed upper-bound variant
+    - *3*: robust moment estimator + par-cor estimator. Huberized-Markov variant
+    - *4*: robust moment estimator + par-cor estimator. Huberized-Chebyshev variant
 
 > Filtering (gradient smoothing (lowpass regularization) and exponential moving averages (EMAs))
 - `beta_cfg` = (`beta_n`, `beta_a`, `beta_i`, `gamma_i`, `eta_i`, `debias`)
