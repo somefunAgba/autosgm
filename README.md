@@ -74,7 +74,8 @@ opt0 = AutoSGM(
 # 1. use moment estimation as part of the lr, 
 # The rest of the configuration remains the same, except in lr_cfg.
 
-# use RMSProp: Plain SGM, moment estimation, coupled weight-decay
+# RMSProp
+# Instance: Plain SGM, moment estimation, coupled weight-decay
 opt1 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
