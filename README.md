@@ -164,7 +164,7 @@ opt6 = AutoSGM(
 
 # The actual parcor options are 3 or 4.
 parcor = 3
-# using par-cor estimation with moment estimation, 
+# using parcor estimation with moment estimation, 
 # allows us to use an higher learning rate than using only moment estimation,
 # so instead of 1e-3, we may try something close but bigger like 1e-2
 # The rest of the configuration remains the same, except in lr_cfg.
