@@ -60,12 +60,12 @@ iters_per_epoch = int(1E9)
 beta = 0 # off
 
 
-# Instance: Plain SGM, constant lr 1E-3, coupled weight-decay
+# Instance: Plain SGM, constant lr 1E-3, coupled weight-decay with wd constant 1E-4
 opt0 = AutoSGM(
     model.parameters(),
     lr_cfg=(False, 1e-3, 0),  
     beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
-    wd_cfg=(1e-2, 0),   
+    wd_cfg=(1e-4, 0),   
     eps_cfg=(1e-8, False) 
 )
 
@@ -73,24 +73,38 @@ opt0 = AutoSGM(
 
 # 1. use moment estimation as part of the lr, 
 # The rest of the configuration remains the same, except in lr_cfg.
-# 2. activate windowing, via cosine annealing as the lr schedule,
-# The rest of the configuration remains the same, except in rc_cfg.
 
-# Instance: Plain, moment estimation, standard cosine annealing, coupled weight-decay
+# use RMSProp: Plain SGM, moment estimation, coupled weight-decay
 opt1 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
     beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
     rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0),
-    wd_cfg=(1e-2, 0),   
+    wd_cfg=(1e-4, 0),   
+    eps_cfg=(1e-8, False) 
+)
+
+
+# 2. activate windowing, via cosine annealing as the lr schedule,
+# The rest of the configuration remains the same, but we now need to setup rc_cfg.
+
+# Instance: Plain SGM, moment estimation, standard cosine annealing, coupled weight-decay
+opt2 = AutoSGM(
+    model.parameters(),
+    lr_cfg=(True, 1e-3, 0),  
+    beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
+    rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0),
+    wd_cfg=(1e-4, 0),   
     eps_cfg=(1e-8, False) 
 )
 
 # 3. activate gradient smoothing, 
 # The rest of the configuration remains the same, except in beta_cfg.
-beta = 0.9 # activated
-# 4. use decoupled weight-decay,
-# The rest of the configuration remains the same, except in wd_cfg.
+beta = 0.9 # activated with 0 < beta << 1
+
+# 4. switch to decoupled weight-decay,
+# The rest of the configuration remains the same, except in wd_cfg
+# we now use a wd constant of 1E-2, and the 0 is replaced with 1
 
 # Instance: PHB, moment estimation, standard cosine annealing, decoupled weight-decay
 opt2 = AutoSGM(
@@ -102,10 +116,9 @@ opt2 = AutoSGM(
     eps_cfg=(1e-8, False) 
 )
 
-
-# 5. use NAG: adjust the filter's zero location from 0 to beta / (1 + beta)
+# 5. use NAG: adjust the gradient smoothing filter's zero location from 0 to beta / (1 + beta)
 # The rest of the configuration remains the same, except in beta_cfg.
-gamma = beta/(1+beta) # ~ 0.47
+gamma = beta/(1+beta) # gamma ~ 0.47 for beta = 0.9
 
 # Instance: NAG, moment estimation, standard cosine annealing, decoupled weight-decay
 opt3 = AutoSGM(
@@ -134,18 +147,35 @@ opt4 = AutoSGM(
 # 7. use neither PHB nor NAG: adjust the filter's zero location <= beta 
 # The rest of the configuration remains the same, except in beta_cfg.
 gamma = 1 - math.sqrt(2*(1-beta)) # ~ 0.55
-# 8. enable a partial-correlation estimation, in addition to moment estimation, 
-# The rest of the configuration remains the same, except in lr_cfg.
 
-# Instance: linear decay, decoupled weight-decay
+# 8. in the lr algorithm, in addition to moment estimation, 
+# enable partial-correlation (parcor) estimation, 
+# The rest of the configuration remains the same, except in lr_cfg.
+parcor = 1 
 opt5 = AutoSGM(
     model.parameters(),
-    lr_cfg=(True, 1e-3, 1),  
+    lr_cfg=(True, 1e-3, parcor),  
     beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
     rc_cfg=(2, 0, 0, 1, 1, num_epochs, iters_epoch, 1, 0),
     wd_cfg=(1e-2, 1), 
     eps_cfg=(1e-8, False)   
 )
+
+# The actual parcor options are 3 or 4.
+parcor = 3
+# using par-cor estimation with moment estimation, 
+# allows us to use an higher learning rate than using only moment estimation,
+# so instead of 1e-3, we may try something close but bigger like 1e-2
+# The rest of the configuration remains the same, except in lr_cfg.
+opt5 = AutoSGM(
+    model.parameters(),
+    lr_cfg=(True, 1e-2, parcor),  
+    beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
+    rc_cfg=(2, 0, 0, 1, 1, num_epochs, iters_epoch, 1, 0),
+    wd_cfg=(1e-2, 1), 
+    eps_cfg=(1e-8, False)   
+)
+
 
 ```
 
