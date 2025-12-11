@@ -107,7 +107,7 @@ beta = 0.9 # activated with 0 < beta << 1
 # we now use a wd constant of 1E-2, and the 0 is replaced with 1
 
 # Instance: PHB, moment estimation, standard cosine annealing, decoupled weight-decay
-opt2 = AutoSGM(
+opt3 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
     beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
@@ -121,7 +121,7 @@ opt2 = AutoSGM(
 gamma = beta/(1+beta) # gamma ~ 0.47 for beta = 0.9
 
 # Instance: NAG, moment estimation, standard cosine annealing, decoupled weight-decay
-opt3 = AutoSGM(
+opt4 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
     beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
@@ -134,7 +134,7 @@ opt3 = AutoSGM(
 # The rest of the configuration remains the same, except in rc_cfg.
 
 # Instance: NAG, Adam, linear decay, decoupled weight-decay
-opt4 = AutoSGM(
+opt5 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, 0),  
     beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
@@ -152,7 +152,7 @@ gamma = 1 - math.sqrt(2*(1-beta)) # ~ 0.55
 # enable partial-correlation (parcor) estimation, 
 # The rest of the configuration remains the same, except in lr_cfg.
 parcor = 1 
-opt5 = AutoSGM(
+opt6 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, parcor),  
     beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
@@ -167,7 +167,7 @@ parcor = 3
 # allows us to use an higher learning rate than using only moment estimation,
 # so instead of 1e-3, we may try something close but bigger like 1e-2
 # The rest of the configuration remains the same, except in lr_cfg.
-opt5 = AutoSGM(
+opt7 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-2, parcor),  
     beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
