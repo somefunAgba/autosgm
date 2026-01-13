@@ -99,7 +99,7 @@ def _capt_mn_sd(tensor):
 
 #-------- Robustifiers --------------------
 
-def _huber(val, cap, c=4):
+def _huber(val, cap, c=1):
    ''' fixed sign Huber clip '''
    return torch.sign(val) * torch.clip(val.abs(), max=c*cap)
 
@@ -108,13 +108,17 @@ def _tuckey(val):
     valc = torch.clip(val, max=1)
     return _sq(1 - _sq(valc))*valc
 
-'''General template for Huber clipping'''
-def _hubg(x, mag, scale, a=4):
+'''General templates for Huber clipping'''
+def _hubg(x, xmag, scale, a=1):
     # (x/mag) * min(mag, a*scale)
-    return (x/mag) * torch.clip(mag, max=a*scale)
+    return (x/xmag) * torch.clip(xmag, max=a*scale)
+
+def _hubs(x, xmag, scale, a=1):
+    # sign(x) * min(xmag, a*scale)
+    return torch.sign(x) * torch.clip(xmag, max=a*scale)
 
 '''Markov-based template'''
-def _huber_m(x, mag, expt_mag, a=4):
+def _huber_m(x, mag, expt_mag, a=1):
     '''markov inequality, a=4 => cf.'
     ' mag = |x| > 0, expt_mag = E[|x|] > 0'''
     # ssign = x/mag
@@ -122,15 +126,19 @@ def _huber_m(x, mag, expt_mag, a=4):
     # return (x/mag) * torch.clip(mag, max=a*expt_mag)
     return _hubg(x, mag, expt_mag, a)
 
-def _hub_mark_v(x, s, t, beta, a, eps):
-    ''' vectorized form'''
+def _hub_mark_vs(x, exmag, a=1):
+    ''' vectorized form, known expt. mag'''
+    xmag = torch.abs(x)
+    return _hubs(x, xmag, exmag, a)
+
+def _hub_mark_v(x, s, t, beta, a,):
+    ''' vectorized form, estimated expt. mag'''
     xn = torch.abs(x)
-    xmag = xn.add(eps)
-    xm, s = _lpf_can_t(s, xmag, t, beta)
-    return _huber_m(x, xmag, xm, a)
+    xm, s = _lpf_can_t(s, xn, t, beta)
+    return _hubs(x, xn, xm, a)
 
 '''Chebyshev-based template'''
-def _huber_c(x, mag, expt_sd, a=4):
+def _huber_c(x, mag, expt_sd, a=1):
     '''chebyshev inequality a=4 => cf.'
     ' mag = |x - E[x]| > 0, expt_sd = sqrt[E[|x- E[x]|^2]] > 0 '''
     # ssign = x/mag
@@ -138,70 +146,15 @@ def _huber_c(x, mag, expt_sd, a=4):
     # return (x/mag) * torch.clip(mag, max=a*expt_sd)
     return _hubg(x, mag, expt_sd, a)
 
-def _hub_cheb_v1(x, s1, s2, t, beta, a, eps):
-    ''' vectorized form'''
-    xm, s1 = _lpf_can(s1, x, t, beta)
-    xmag = torch.abs(x-xm).add(eps)
-    xvar, s2 = _lpf_can(s2, _sq(xmag), t, beta)
+def _hub_cheb_s(x, s1, s2, t, beta, a, eps):
+    ''' scalar version '''
+    xn = torch.norm(x)
+    xm, s1 = _lpf_can(s1, xn, t, beta)
+    xmag = torch.norm(x-xm).add(eps)
+    xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
     torch.sqrt_(xvar).add_(eps)
     return _huber_c(x, xmag, xvar, a)
 
-# def _hub_cheb_s1(x, s1, s2, t, beta, a, eps):
-#     ''' scalar version '''
-#     xn = torch.norm(x)
-#     xm, s1 = _lpf_can(s1, xn, t, beta)
-#     xmag = torch.norm(x-xm).add(eps)
-#     xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
-#     torch.sqrt_(xvar).add_(eps)
-#     return _huber_c(x, xmag, xvar, a)
-
-# def _hub_mark_vd(x, s, t, beta, v, eps):
-#     ''' vectorized, dynamic scale'''
-#     xn = torch.abs(x)
-#     xmag = xn.add(eps)
-#     xm, s = _lpf_can(s, xmag, t, beta)
-#     a, v = _lpf_can(v, _sq(xmag-xm), t, beta)
-#     a = torch.sqrt(a)
-#     return _huber_m(x, xmag, xm, a)
-
-# def _hub_mark_s(x, s, t, beta, a, eps):
-#     xn = torch.norm(x) 
-#     xmag = xn.add(eps)
-#     xm, s = _lpf_can(s, xmag, t, beta)
-#     return _huber_m(x, xmag, xm, a)
-
-# def _hub_cheb_s2(x, s1, s2, t, beta, a, eps):
-#     xn = torch.norm(x)
-#     xm, s1 = _lpf_can(s1, xn, t, beta)
-#     xmag = torch.norm(xn-xm).add(eps)
-#     xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
-#     torch.sqrt_(xvar).add_(eps)
-#     return _huber_c(x, xmag, xvar, a)
-
-
-
-# def _hub_cheb_v2(x, s1, s2, t, beta, a, eps):
-#     xn = torch.abs(x)
-#     xm, s1 = _lpf_can(s1, xn, t, beta)
-#     xmag = torch.abs(xn-xm).add(eps)
-#     xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
-#     torch.sqrt_(xvar).add_(eps)
-#     return _huber_c(x, xmag, xvar, a)
-
-# def _hub_cheb_hs1(x, s1, s2, t, beta, a, eps):
-#     xm, s1 = _lpf_can(s1, x, t, beta)
-#     xmag = torch.norm(x-xm).add(eps)
-#     xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
-#     torch.sqrt_(xvar).add_(eps)
-#     return _huber_c(x, xmag, xvar, a)
-
-# def _hub_cheb_hs2(x, s1, s2, t, beta, a, eps):
-#     xn = torch.abs(x)
-#     xm, s1 = _lpf_can(s1, xn, t, beta)
-#     xmag = torch.norm(xn-xm).add(eps)
-#     xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
-#     torch.sqrt_(xvar).add_(eps)
-#     return _huber_c(x, xmag, xvar, a)
 
 
 # ---------- LPF captures HB, NAG and more ----------
@@ -241,6 +194,32 @@ def _lpf_can_t(v, x, t:float,
         except: y *= (eta_n/eta)/(1-math.pow(beta,t))
 
     return y, v
+
+
+def _lpf_sp_t(v, x, t:float, beta:float=0.9,):
+    '''
+    First-order Lowpass filter (unit kernel, Transposed canonical form)
+
+    Uses: smoothing and averaging operations.
+    state or memory `v`, input `x`, 
+
+    requires: pole: 0 <= beta < 1
+    '''
+    return _lpf_can_t(v, x, t, beta, eta=1)
+
+  
+def _lpf_spa_t(v, x, t:float, beta:float=0.1,):
+    '''
+    First-order Lowpass filter (unit kernel, Transposed canonical form)
+
+    Uses: smooth-average estimation.
+    scalar state or memory `v`, input tensor `x`, 
+
+    requires: pole: 0 <= beta < 1
+    '''
+    # layer-aware smoothing
+    return _lpf_can_t(v, torch.mean(x), t, beta)  
+  
 
 '''First-order Lowpass Filter LPF'''
 def _lpf_can(v, x, t:float, 
@@ -881,6 +860,85 @@ class WINF_II():
         return y
 
 
+# ---MAT
+
+def _CLASS_OPT(G, use2d=True, matrix_threshold=4, large_dim=1024):
+    """
+    Classify gradient tensor G using only min/max logic.
+
+    Returns:
+        classm     : True → use 2D Matrix logic
+        reshaped   : True if reshaped to 2D
+        original_shape
+    """
+
+    original_shape = G.shape
+    # ---------------------------------------------------------
+    # (A) Sparse → always vector-like
+    # ---------------------------------------------------------
+    if G.is_sparse:
+        print('SPARSE', G.shape)
+        return False, False, original_shape
+
+    # ---------------------------------------------------------
+    # (B) True 1D → vector-like
+    # ---------------------------------------------------------
+    if G.ndim == 1:
+        return False, False, original_shape
+
+    # ---------------------------------------------------------
+    # (C) >2D → flatten to 2D
+    # ---------------------------------------------------------
+    if G.ndim > 2:
+        # G = G.reshape(G.shape[0], -1)
+        reshaped = True
+    else:
+        reshaped = False
+
+    # ---------------------------------------------------------
+    # (D) Use min/max to classify
+    # ---------------------------------------------------------
+    n, m = G.shape
+    mn = min(n, m)
+    mx = max(n, m)
+
+    # (D1) Essentially 1D or too small
+    if mn < matrix_threshold:
+        return False, reshaped, original_shape
+
+    # (D2) Conceptually vector-like:
+    #      one dimension huge, the other small
+    if mx > large_dim:
+        return False, reshaped, original_shape
+    
+    print(G.shape)
+    return True and use2d, reshaped, original_shape
+
+def _IMSQRT_EVD(M, eps=1e-6):
+    # M is PSD
+    M += eps*torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
+    # inverse square root M^{-1/2} via EVD 
+    D, U = torch.linalg.eigh(M) 
+    D_inv_sqrt = D.clip(min=eps).rsqrt() 
+    return U @ torch.diag(D_inv_sqrt) @ U.T
+
+def _IMSQRT_NS(M, eps=1e-6, K=7):
+    # M is PSD matrix, K = max inner iterations
+    # inverse square root M^{-1/2} via NS 
+
+    I = torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
+    M += eps*I
+    trace_inv = 1/torch.linalg.norm(M, ord='fro').min(eps) 
+
+    Y = M*trace_inv
+    Z = 1*I 
+    M3I = 3*I
+    for _ in range(K): 
+        T = M3I - (Z @ Y) 
+        Y = 0.5 * Y @ T 
+        Z = 0.5 * T @ Z 
+
+    return Z*torch.sqrt(trace_inv)
 
 # ---------- PyTorch Optim. Class ----------
 
@@ -891,11 +949,11 @@ class AutoSGM(Optimizer):
     """
         
     def __init__(self, params, *,
-                 lr_cfg:Tuple=(True, 1e-2, 5), 
+                 lr_cfg:Tuple=(True, 1e-2, 3), 
                  beta_cfg:Tuple=(0.9999, 0.999, 0.9, 0, 0, True), 
                  rc_cfg:Tuple=(0, 0, 0, 2, 1, 1000, 1, 1, 0), 
-                 wd_cfg:Tuple=(0, 0), eps_cfg:Tuple=(1e-10, True), 
-                 miscs:Tuple=(1,), maximize:bool=False, debug:bool=False):  
+                 wd_cfg:Tuple=(0, 0), eps_cfg:Tuple=(1e-10, ), 
+                 maximize:bool=False, dbg:bool=False, mix:bool=False):  
         """
         Implements AutoSGM with approximate variants of an optimal learning rate (lr) function, and cosine annealing (rc).
         
@@ -952,16 +1010,10 @@ class AutoSGM(Optimizer):
             
             `e` (`float`, default: `0`). Coverage fraction of the window length. `0 <= e < 1`. For example, `e=0.1`, for annealing, makes the window to cover a fraction of only (1-0.1) of the actual window length.
         
-         `eps_cfg` (`float`, `bool`): eps_cfg (defaut: (1e-10, True), optional), set to make normalizations well-behaved.
+         `eps_cfg` (`float`, ): eps_cfg (defaut: (1e-10, ), optional), set to make normalizations well-behaved.
 
             `float` is a small positive constant used to condition or stabilize the gradient normalization operation (default: `1e-10`). 
-
-            `bool` controls how to add the small `float` value, once or twice. (default: `True`).
-         
-         `miscs` (`int`): miscs (default: (1), optional). miscellanous cfg.
-            
-            `layer_wise` (`int`, default:`1`). indicates if parameters are layer-by-layer.
-        
+                
          `maximize` (`bool`): maximize (default: `False`, optional). indicates the optimization direction. `False` if minimizing, otherwise, it indicates maximizing the learning objective.         
                                   
 
@@ -973,9 +1025,9 @@ class AutoSGM(Optimizer):
         # access, e.g: optimizer.defaults['lr_cfg']
 
         # init. store inputs as optimizer `defaults`
-        defaults = dict(dbg=debug, lr_cfg=lr_cfg, wd_cfg=wd_cfg, 
+        defaults = dict(dbg=dbg, lr_cfg=lr_cfg, wd_cfg=wd_cfg, 
             eps_cfg=eps_cfg, maximize=maximize, beta_cfg=beta_cfg, 
-            msc_cfg=miscs, rcf_cfgs=rc_cfg, com_sets=None)
+            rcf_cfgs=rc_cfg, mix=mix)
 
         super().__init__(params, defaults)
         
@@ -986,7 +1038,8 @@ class AutoSGM(Optimizer):
         '''       
         for group in self.param_groups:
             group.setdefault('maximize', False)
-            group.setdefault('com_sets', None)   
+            group.setdefault('dbg', False)
+            group.setdefault('mix', False)   
 
 
     def lazyinit_param(self, p, group):  
@@ -1000,70 +1053,79 @@ class AutoSGM(Optimizer):
             state['beta_cfg'] = group['beta_cfg']   
             state['wd_cfg'] = group['wd_cfg']
             state['eps_cfg'] = group['eps_cfg'] 
-            state['msc_cfg'] = group['msc_cfg']
             state['rcf_cfgs'] = group['rcf_cfgs']
             state['maximize'] = group['maximize']
             
             
             rc_cfg = group['rcf_cfgs']
-            per_lay, = group['msc_cfg']  
-            state['per_lay'] = per_lay
 
             state['dtype_dev'] = (dtype, device)
 
             state['step'] = torch.tensor(0, dtype=torch.float, device=p.device)
             state['epoch'] = torch.tensor(0, dtype=torch.float, device=p.device)
 
-            # grads.
-            state['g_sm'] = torch.zeros_like(p.real) 
-            state['g_var'] = torch.zeros_like(p.real) 
-
-            # network weights (parameters)
-            state['w'] = _nz(p.real.clone().detach(), group['eps_cfg'][0])
-                
-            # lr.
-            state['pc'] = None            
-            state['wsq'] = None 
-            state['pc_mag'] = None                             
-            state['cmag'] = None
-            state['cvar'] = None 
-            state["lr_num"] = torch.zeros(1, device=p.device)   
-            state['one'] = torch.ones(1, device=p.device) 
-            state['cf'] = 4
-
-            
-            if group['lr_cfg']:
-                if group['lr_cfg'][2] in [3, ]:
-                    state['cmag'] = torch.zeros(1, device=p.device)
-                    state['cvar'] = torch.zeros(1, device=p.device)      
-
-                if group['lr_cfg'][2] in [1, 2, 4, 5, 6]:
-                    state['pc'] = torch.zeros_like(p.real)
-
-                if group['lr_cfg'][2] in [1, 2, 4,]:
-                    state['wsq'] = torch.zeros_like(p.real)
-
-                if group['lr_cfg'][2] in [2, ]:
-                    state['pc_mag'] = torch.zeros_like(p.real)
-
-                if not per_lay: 
-                    state['lr_num'] = torch.zeros_like(p.real)      
-                     
-
-            if group['dbg']:
-                state['g[t]'] = torch.zeros_like(p.real) 
-
-                state['alpha[t]'] = torch.ones_like(p.real)
-
-                state['d[t]'] = torch.ones_like(p.real)
-    
-                state['w[t]'] = torch.zeros_like(p.real)
-
             # win fcn.
             if rc_cfg[0] != 0 and rc_cfg[1] == 1: # kron. input seq
                 state['rcf'] = WINF_II(rc_cfg[0], *rc_cfg[2:])
             else: # rect. input seq
                 state['rcf'] = WINF(rc_cfg[0], *rc_cfg[2:])
+
+            # network weights (parameters)
+            state['w'] = _nz(p.real.clone().detach(), group['eps_cfg'][0])
+
+            # for clipping 
+            state['cmag'] = torch.zeros(1, device=device)
+            state['cvar'] = torch.zeros(1, device=device)  
+            state['cf'] = 4
+            self.cf = state['cf']
+                            
+            gprops = _CLASS_OPT(p.grad, use2d=state['mix'])
+            state['gprops'] = gprops
+
+            # grads.
+            if gprops[0] is False:
+                state['g_sm'] = torch.zeros_like(p.real) 
+                state['g_var'] = torch.zeros_like(p.real) 
+
+                # lr.
+                state['pc'] = None            
+                state['wsq'] = None 
+                state['pcx'] = None                             
+                state["lr_num"] = torch.zeros(1, device=p.device)   
+                state['one'] = torch.ones(1, device=p.device)           
+                if group['lr_cfg']:
+                    if group['lr_cfg'][2] in [1, 2, 3]:
+                        state['pc'] = torch.zeros_like(p.real)
+
+                    if group['lr_cfg'][2] in [1, 2, ]:
+                        state['wsq'] = torch.zeros_like(p.real)
+
+                    if group['lr_cfg'][2] in [2, ]:
+                        state['pcx'] = torch.zeros_like(p.real)      
+                        
+
+                if group['dbg']:
+                    state['g[t]'] = torch.zeros_like(p.real) 
+                    state['alpha[t]'] = torch.ones_like(p.real)
+                    state['d[t]'] = torch.ones_like(p.real)
+                    state['w[t]'] = torch.zeros_like(p.real)
+            else:
+                lcf1, _, lcf3 = state['lr_cfg']
+                state['lr_cfg'] = (lcf1, 1e-2, lcf3)
+                state['evd'] = False
+                # state['evd'] = True
+
+                G = p.grad
+                G = G.reshape(G.shape[0], -1)
+                state['g_sm'] = torch.zeros_like(G.real) 
+                state['g_cov'] = torch.eye(G.shape[0], device=device, dtype=dtype) 
+
+                # lr.
+                state['pc_cov'] = None                                         
+                state["lr_num"] = torch.zeros(1, device=device)   
+                state['one'] = torch.ones(1, device=device)           
+                if group['lr_cfg'] and group['lr_cfg'][2] in [1, 2, 3]:
+                    state['pc_cov'] = torch.eye(G.shape[0], device=device, dtype=dtype)     
 
         return state
         
@@ -1083,32 +1145,133 @@ class AutoSGM(Optimizer):
 
             t = state['step'].item() 
             k = state['epoch'].item() # epoch index
-
-            g = 1*p.grad # cloned
-            w = state['w']
-
-            ##UPDATEs.          
-
-            # (window function) defaults to 1, if not active.
-            rca = state['rcf'].step(t, k)
-
-            # grad-stats!
-            g, gpow, u, v = self.grad_stats(state, w, g, t)  
             
-            # lr numerator @ current iteration
-            numlr = self.lr_t(state, t, w, g, gpow, u, v)        
+            gprops = state['gprops']                
+            w = state['w']  
+            g = 1*p.grad # cloned
 
-            if group['dbg'] and history is not None:
-                with torch.no_grad():
-                    self.update_ltv_hist(p, history, w, g, gpow, v, rca*numlr)
+            #--- UPDATEs.        
+            if not gprops[0]:# --- 1D     
+                # grad-stats!
+                g, gpow, u, v = self.grad_stats(state, w, g, t)  
+                
+                # lr numerator @ current iteration
+                numlr = self.lr_t(state, t, w, g, gpow, u, v)   
 
-            # param. update !
+                # windowing. unity, if not active.
+                numlr *= state['rcf'].step(t, k)  
+                
+                # debug hist.
+                self.debug(group, history, p, g, w, gpow, v, numlr)
+
+                # param step.
+                v *= -numlr
+            else: # --- 2D
+
+                if gprops[1]:
+                    g = g.reshape(g.shape[0], -1)
+
+                # grad-stats!
+                v, denlr = self.grad_stats_m(state, w, g, t)
+
+                # lr numerator
+                numlr = self.lr_tm(state, t, w, v)
+
+                # windowing. unity, if not active.
+                numlr *= state['rcf'].step(t, k)  
+                
+                # param step.
+                v *= -numlr
+                if gprops[1]:
+                    v = v.reshape(gprops[-1])
+
+            # ---
+
+            # param. update!
             if maximize: v.neg_()
-            w -= (rca*v*numlr)
-
-
+            w += v
+        
             # pass update to the net. (model) !
             with torch.no_grad(): p.copy_(w)
+    
+    def grad_stats_m(self,state,w,g,t):
+        '''gradient stats. 2D
+        returns: grad, grad power, grad direction, smooth grad direction.
+        '''
+        gsm = state['g_sm']
+        gcov = state['g_cov']
+        betas = state['beta_cfg']
+        scf = state['eps_cfg']
+        wcf = state['wd_cfg']
+        evd = state['evd']
+        
+        eta = (1-betas[2])/(1-betas[3])
+        # weight-decay!
+        wd = wcf[0]*w.reshape(g.shape)
+        # no decoupling of weight from smooth grad?
+        if wcf[1] == 0: g += wd   
+
+        # smooth grad!
+        v, gsm = _lpf_can_t(gsm, g, t, betas[2], betas[3], debias=betas[5])
+   
+        # lr denominator @ current iteration
+        # grad's covariance est! M[t] = EMA(v v^T)  
+        lrden = torch.eye(g.shape[0], device=g.device, dtype=g.dtype) 
+        if state['lr_cfg'][0]:
+            # optional pre/post numeric stabilizer
+            m, gcov = _lpf_can_t(gcov, v @ v.T, t, betas[1])
+            if evd: lrden = _IMSQRT_EVD(m, scf[0])
+            else: lrden = _IMSQRT_NS(m)
+        torch.mm
+        # smooth grad. (via lr denominator)
+        v = lrden @ v 
+
+        # add decayed weight to normalized [smooth] grad.
+        if wcf[1]: v += eta*wd
+
+        # robustifier: huberize input step
+        if state['lr_cfg'][0] in [4,]:  
+            cm = state['cmag']
+            cv = state['cvar']
+            v = _hub_cheb_s(v, cm, cv, t, betas[0], state['cf'], scf[0])
+        
+        return v, lrden
+
+    def lr_tm(self, state, t, w, v):
+        ''' pick learning rate numerator 2D
+
+        If `aoptlr` is `True`, `lr0` is a trust-region constant for the iteration-dependent learning rate. 
+        Otherwise `lr0` is the constant learning rate, the denominator is 1.
+
+        '''
+        # iteration-dep. partial weight-grad correlation estimator 
+
+        # scalar
+        lrn = state['lr_num']  
+        one = state['one']      
+        s = state['pc_cov']
+        w = w.reshape(v.shape)
+
+        #
+        self.eps = state['eps_cfg'][0]
+        betas = state['beta_cfg']
+        lr0 = one*state['lr_cfg'][1]
+
+        if state['lr_cfg'][0]:     
+            # opt lr's numerator
+            if state['lr_cfg'][2] == 0: # denominator only.
+                # trust-region const.
+                return lr0  # numlr = lr0 · 1        
+            elif state['lr_cfg'][2] == 3: # moment est.
+                numlr = self.a0m(lr0, betas, t, v, s)  
+                numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth! 
+                return numlr
+            elif state['lr_cfg'][2] == 4: # denominator only.
+                # trust-region const.
+                return lr0  # numlr = lr0 · 1  
+        else: # constant, no normalization
+            return lr0
+
 
     def grad_stats(self, state, w, g, t):
         '''gradient stats.
@@ -1116,37 +1279,41 @@ class AutoSGM(Optimizer):
         '''
         gsm = state['g_sm']
         gvar = state['g_var']
-        ngrad = state['lr_cfg'][0]
         betas = state['beta_cfg']
         scf = state['eps_cfg']
         wcf = state['wd_cfg']
-
+        
         eta = (1-betas[2])/(1-betas[3])
         # weight-decay!
         wd = wcf[0]*w
         # no decoupling of weight from smooth grad?
         if wcf[1] == 0: g += wd   
 
-        # lr denominator @ current iteration
-        # grad's power est!
-
-        gpow = 1
-        if ngrad:
-            gpow, gvar = _lpf_can_t(gvar, g*g, t, 
-                betas[1], eta=betas[4], debias=betas[5])     
-            if scf[1]: gpow += scf[0]
-            torch.sqrt_(gpow)
-            gpow += scf[0]        
-
         # smooth grad!
         v, gsm = _lpf_can_t(gsm, g, t, 
             betas[2], betas[3], betas[4], debias=betas[5])
+        
+        # lr denominator @ current iteration
+        # grad's power est!
+        gpow = 1
+        if state['lr_cfg'][0]:
+            # optional pre/post numeric stabilizer
+            gsq = _sq(g + scf[0])
+            gpow, gvar = _lpf_can_t(gvar, gsq, t, 
+                betas[1], eta=betas[4], debias=betas[5])     
+            torch.sqrt_(gpow).add_(scf[0])
 
-        # grad. and smooth grad direction (via lr denominator).
+        # grad. and smooth grad. (via lr denominator).
         u = g/gpow 
         v /= gpow
         # add decayed weight to normalized [smooth] grad.
         if wcf[1]: v += eta*wd
+
+        # robustifier: huberize input step
+        if state['lr_cfg'][0] in [4,]:  
+            cm = state['cmag']
+            cv = state['cvar']
+            v = _hub_cheb_s(v, cm, cv, t, betas[0], state['cf'], scf[0])
 
         return g, gpow, u, v
                  
@@ -1162,156 +1329,97 @@ class AutoSGM(Optimizer):
         lrn = state['lr_num']                
         s = state['pc']
         wsq = state['wsq']
+        pcx = state['pcx']
         one = state['one']
-        pcx = state['pc_mag']
-        self.cf = state['cf']
         self.eps = state['eps_cfg'][0]
-        self.per_lay = state['per_lay']
-        
+
         betas = state['beta_cfg']
         lr0 = one*state['lr_cfg'][1]
         if state['lr_cfg'][0]:     
             # opt lr's numerator
             if state['lr_cfg'][2] == 0: # denominator only.
                 # trust-region const.
-                return lr0         
-            elif state['lr_cfg'][2] == 1: # robust par-corr estimate.  
-                _, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
-                numlr = self.a1(lr0,betas,t,w,v,wsq,s)
-                numlr, lrn = _lpf_can(lrn, numlr, t, beta=0.1) # smooth!  
+                return lr0  # numlr = lr0 · 1        
+            elif state['lr_cfg'][2] == 1: # robust par-corr est.  
+                cmax, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
+                cmax += 1
+                numlr = self.a1(lr0,betas,t,w,v,s,cmax)
+                numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth!
                 return numlr            
-            elif state['lr_cfg'][2] == 2: # robust par-corr estimate. 
-                _, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
-                lr0m = lr0/(1+wsq)
-                numlr = self.a2(lr0m,betas,t,w,v,wsq,s,pcx,gpow)  
-                numlr, lrn = _lpf_can(lrn, numlr, t, beta=0.1) # smooth!  
+            elif state['lr_cfg'][2] == 2: # robust par-corr est. 
+                cmax, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
+                cmax += 1
+                numlr = self.a2(lr0,betas,t,w,v,s,cmax,pcx, gpow)  
+                numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth! 
                 return numlr
-            elif state['lr_cfg'][2] == 3: # experimental
-                grm = state['cmag']
-                grv = state['cvar']
-                numlr = self.a3(lr0, v, grm, grv, t, betas[0])
-                return numlr
-            elif state['lr_cfg'][2] == 4: # relaxed upper-bound par-corr estimate.
-                numlr = self.a4(lr0, betas, t, w, gn, s)  
-                numlr, lrn = _lpf_can(lrn, numlr, t, beta=0.1) # smooth!   
-                return numlr
-            elif state['lr_cfg'][2] == 5: # moment est.
+            elif state['lr_cfg'][2] == 3: # moment est.
                 numlr = self.a0(lr0, betas, t, gn, s)  
+                numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth! 
                 return numlr
-            elif state['lr_cfg'][2] == 6: # moment est.
-                numlr = self.a0v(lr0, betas, t, gn, s)  
-                return numlr
+            elif state['lr_cfg'][2] == 4: # denominator only.
+                # trust-region const.
+                return lr0  # numlr = lr0 · 1  
+
+
         else: # constant, no normalization
             return lr0
         
-    def a3(self, lr0, x, s1, s2, t, beta):
-        ''' experimental, scalar [robust-cheb] corr. <=1 '''
-        xn = torch.norm(x)
-        xm, s1 = _lpf_can(s1, xn, t, beta)
-        xmag = torch.norm(x-xm).add(self.eps)
-        xvar, s2 = _lpf_can(s2, _sq(xmag), t, beta)
-        torch.sqrt_(xvar).add_(self.eps)
-        # lr0 * (1/xmag) * min(xmag, self.cf*xvar)
-        return _hubg(lr0, xmag, xvar, self.cf)
            
-    def a4(self, lr0, betas, t, w, gn, s):
-        '''[relaxed upbnd.] par-corr. variant
-
-        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of 
-        the par-corr update. This variant computes the partial-correlation upper-bound
-        relaxed by `lr0`. EMA estimate is clipped within `[0, lr0]`.
-        Finally, the estimates are averaged across the layer to yield a single, uniform estimate.      
-        '''
-        # safes: clip (in + out), take mean
-        out, s = _lpf_can(s, (_sq(w)+_sq(gn))*lr0, t, betas[0])
-        return torch.mean(out.clip(max=lr0)) if self.per_lay else out
-    
-    def a2(self, lr0m, betas, t, w, gn, wsq, s, pcx, gpow):
+    def a2(self, lr0, betas, t, w, gn, s, cmax, pcx, gpow):
         '''[robust-markov] par-corr. est.
         
-        Computes a robust estimate of learning rate numerator via 
-        Markov-inequality-based input pre-filtering using both a 
-        Huber-clipped input weight-gradient and Tukey-biweight output clipping,
-        around the trust-region constant `lr0`.
+        Same as a1, but with uses a Markov-inequality-based input pre-filter.
         
         `lr0 · E[w · gn]`
    
-            Let β = betas[0] (β → 1.0).
-
-            lr0m = lr0 / (1+wsq) (trust-region scaled by |E[w·gn]|), 
-            where wsq ≈ E[w²]
+            Let β = betas[0] (β → 1.0) (more stable, longer memory).
             
             1. Input pre-filtering to suppress outliers before entering the EMA.
-            x = lr0m · sign(w·gn) · min(|w·gn|, a·E[|w·gn|])
-            where a = self.cf (typically 4, Markov inequality parameter)
+            x = lr0 · sign(w·gn) · min(|w·gn|, E[|w·gn|]) / max. E[|w·gn|]
             
-            3. Exponential averaging via y_t = β · y_{t-1} +  x_t
+            2. same as a1.
             
-            - Effective exponential window length ≈ 1/(1-β) iterations
-            - Early iterations: slow ramp-up from y₀=0 (warm-up phase)
-            - Late iterations: y_t → exponentially weighted long-term average of x
-            
-            4. Trust-region clipping with Tukey biweight lower bound:
+            3. same as a1.
+ 
+            • Convergence to bounds (faster than a1 due to pre-filtering):
+            - Pre-filter removes spikes → LPF input more stable → faster saturation
+            • Hence, robust to both spike outliers and statistical noise.
+                 
+
+            Notes:
+                Markov inequality: `P(|x| > a. E[|x|]) ≤ 1/a`
+                Huber m-estimator: robust mean estimator
+                Tukey biweight: `ρ(u) = u(1-u²)²` for `|u|≤1`
+
+            Optional, dynamic clipping around lr0 with a Tukey biweight lower bound:
             τ(gpow) = (1 - gpow²)² · gpow,  with gpow ∈ [0,1]
             τ(gpow) biweight properties:
                 • τ(0) = 0, τ(1) = 0
                 • τ_max occurs at ≈ 0.2857, that is gpow ≈ 0.4472 (= 1/√5)
                 • Encourages moderate gradient power (suppresses extreme scales)
-            
-            out = clip(|y_t|, min=τ(gpow)·lr0m, max=lr0m·(1+wsq)²)
-            
-            5. Layer-aware averaging:
-            If per_lay=True: return mean(out)  (scalar per layer)
         
-            6. Output bounds (element-wise):
- 
-            out ∈ [lr0/(1+E[w²]) · τ(gpow), lr0·(1+E[w²])].
+            . Args:
 
-            The upper bound is same as a1.
-            Lower bound can be nonzero due to Tukey biweight.
-            
-            • Convergence to bounds (faster than a1 due to pre-filtering):
-            - Pre-filter removes spikes → LPF input more stable → faster saturation
-            - β → 1.0: Slower convergence (more stable, longer memory)
-            from 0 toward steady-state ceiling of input magnitude
-            • Robust to both spike outliers and statistical noise, due to:
-            Outlier suppression before EMA + Tukey clipping after EMA.
-                 
-
-            Notes:
-                Markov inequality: `P(|X| > a·E[|X|]) ≤ 1/a`
-                `a=4` → at most 25% of samples exceed the clipping threshold
-                Huber m-estimator: robust mean estimator
-                Tukey biweight: `ρ(u) = u(1-u²)²` for `|u|≤1`
-        
-            6. Args:
-
-            `lr0m` : float
-                Scaled trust-region constant: lr0m = lr0 / (1+wsq).
-            `betas` : tuple
+            `lr0` : float.
+                trust-region constant.
+            `betas` : tuple.
                 betas[0] = β (single pole), typically β → 1.0
-            `t` : float
+            `t` : float.
                 Iteration count (1, 2, 3, ...).
-            `w` : Tensor
-                Model weights/parameters (shape: arbitrary, typically [batch_size, ...])
-            `gn` : Tensor
-                Normalized gradient direction (typically smooth_grad / grad_power)
-                Shape same as w.
-            `wsq` : Tensor
-                weight moment estimate. Shape same as w.
-            `s` : Tensor
+            `w` : tensor.
+                parameters in nn. model (shape: arbitrary)
+            `gn` : float.
+                normalized gradient. Shape same as w.
+            `cmax` : float.
+                max. expected |w·gn|. Shape same as w. 
+            `s` : float.
                 EMA state (memory). Shape same as w.    
-            `pcx` : Tensor
-                Partial correlation magnitude (expected |w·gn|). 
-                Used by _hub_mark_v to scale Huber clip. Shape same as w.
-            `gpow` : Tensor
-                Square-root of gradient moment estimate.
-                Used to compute Tukey lower bound τ(gpow). Shape same as w.
+            `pcx` : float.
+                expected |w·gn|. Shape same as w. 
+            `gpow` : float.
+                square-root of gradient moment estimate.
+                Used to compute dynamic lower bound τ(gpow). Shape same as w.
     
-        
-        Output: 
-            Tensor (scalar if `per_lay`=`True`, else shape of `w`)
-            Learning rate numerator estimate, bounded in [`0`, `lr0·(1+wsq)`].
 
         Usage context:
             Called from `lr_t(...)` when `lr_cfg[2]==2`.
@@ -1319,16 +1427,17 @@ class AutoSGM(Optimizer):
             before being used as the learning rate numerator.
         
         '''
-        # markov-style: clip input
-        inp = lr0m * _hub_mark_v(w*gn, pcx, t, betas[0], self.cf, self.eps)
+        # markov-prefilter: clip input
+        beta = betas[0] if betas[2] == 0 else betas[1]
+        inp = lr0 * _hub_mark_v(w*gn, pcx, t, beta, a=self.cf) / cmax
         # estimate
-        out, s = _lpf_can_t(s, inp, t, betas[0], eta=1)
+        out, s = _lpf_sp_t(s, inp, t, betas[0])
         # clip estimate around trust-region `lr0`
-        out.abs_().clip_(min=_tuckey(gpow)*lr0m, max=lr0m*_sq(1+wsq))
-        # layer-aware smoothing
-        return torch.mean(out) if self.per_lay else out
+        out.abs_().clip_(max=lr0*cmax)
+        # out.clip_(min=_tuckey(gpow)*lr0/cmax)
+        return out
 
-    def a1(self, lr0, betas, t, w, gn, wsq, s):
+    def a1(self, lr0, betas, t, w, gn, s, cmax):
         '''[robust] par-corr. est.
         
         Computes a robust estimate of the learning rate numerator via 
@@ -1347,42 +1456,28 @@ class AutoSGM(Optimizer):
             - Early iterations: slow ramp-up from y₀=0 (warm-up phase)
             - Late iterations: y_t → exponentially weighted long-term average of x
             
-            3. Trust-region clipping (absolute value + max clip):
-            out = clip(|y_t|, max=lr0·(1+E[w²]))
-            
-            4. Layer-aware averaging:
-            If per_lay=True: return mean(out)  (scalar per layer)
-        
-            5. Output bounds (element-wise):
- 
-            out ∈ [0, lr0·(1+E[w²])], where wsq ≈ E[w²]
+            3. Output estimate clipped around lr0, via (absolute value + max clip):
+            out = clip(|y_t|, max=lr0 · max. E[|w·gn|]) ∈ (0, lr0· max. E[|w·gn|]]
 
             The upper bound is determined by the clip operation, not by β.
-            However, β controls *convergence speed* to the bound:
-            - β → 1.0: Slower convergence (more stable, longer memory)
-            from 0 toward steady-state ceiling of input magnitude
         
-            6. Args:
+            . Args:
 
-            `lr0` : float
-                Trust-region constant (learning rate scale). Upper bound is lr0·(1+wsq).
-            `betas` : tuple
+            `lr0` : float.
+                trust-region constant.
+            `betas` : tuple.
                 betas[0] = β (single pole), typically β → 1.0
-            `t` : float
+            `t` : float.
                 Iteration count (1, 2, 3, ...).
-            `w` : Tensor
-                Model weights/parameters (shape: arbitrary, typically [batch_size, ...])
-            `gn` : Tensor
-                Normalized gradient direction (typically smooth_grad / grad_power)
-                Shape same as w.
-            `wsq` : Tensor
-                weight moment estimate. Shape same as w.
-            `s` : Tensor
-                EMA state (memory). Shape same as w.
+            `w` : tensor.
+                parameters in nn. model (shape: arbitrary)
+            `gn` : float.
+                normalized gradient. Shape same as w.
+            `cmax` : float.
+                max. expected |w·gn|. Shape same as w. 
+            `s` : float.
+                EMA state (memory). Shape same as w.    
         
-        Output: 
-            Tensor (scalar if `per_lay`=`True`, else shape of `w`)
-            Learning rate numerator estimate, bounded in [`0`, `lr0·(1+wsq)`].
 
         Usage context:
             Called from `lr_t(...)` when `lr_cfg[2]==1`.
@@ -1391,11 +1486,10 @@ class AutoSGM(Optimizer):
         
         '''
         # estimate
-        out, s = _lpf_can_t(s, w*gn, t, betas[0], eta=1)
+        out, s = _lpf_sp_t(s, lr0*w*gn, t, betas[0])
         # clip estimate around trust-region `lr0`
-        out = lr0*out.abs().clip(max=1+wsq)
-        # layer-aware smoothing
-        return torch.mean(out) if self.per_lay else out
+        out.abs_().clip_(max=lr0*cmax)
+        return out
 
     def a0(self, lr0, betas, t, gn, s):
         '''moment. est.
@@ -1432,7 +1526,7 @@ class AutoSGM(Optimizer):
 
             Comparison to par-correlation estimators (a1, a2):
                 Low overhead: only needs squaring of gn, no weight access.
-                Robust to sign-flips or oscillation: squaring removes direction.
+                Robust to sign-flips or oscillation.
                 Slower convergence to upperbound compared to a1 or a2, since (1-β) norm. factor in the EMA.
                 Tunable. Since y1 = (1-β) · lr0 = ε, can set lr0 = ε/(1-β)
 
@@ -1452,84 +1546,24 @@ class AutoSGM(Optimizer):
             Tensor: the estimated numerator (scalar if per_lay=True, else same shape as gn).
         
         Usage:
-            Called from `lr_t(...)` when `lr_cfg[2] == 5`.
+            Called from `lr_t(...)` when `lr_cfg[2] == 3`.
         
         '''
         # estimate
         out, s = _lpf_can_t(s, lr0*gn*gn, t, betas[0])
         out.clip_(max=lr0)
-        # layer-aware smoothing
-        return torch.mean(out) if self.per_lay else out
+        return out
 
-
-    def a0v(self, lr0, betas, t, gn, s):
-        '''[robust-markov] moment. est.
+    def a0m(self, lr0, betas, t, gn, s):
+        '''moment. est. same as a0, but mat.
 
         Estimates the moment of the normalized gradient as the learning-rate numerator.
-
-        `lr0 · E[gn²]`
-   
-            Let β = betas[0], (β → 1.0).
-            
-            1. Input pre-filtering to suppress transient outliers before entering the EMA.
-            x = lr0 · min(gn², a·E[gn²]), E[gn²] ≈ 1.
-            where a = self.cf (typically 4, Markov inequality parameter)
-            
-            2. Exponential averaging via y_t = β · y_{t-1} +  x_t
-            
-            - Effective exponential window length ≈ 1/(1-β) iterations
-            - Early iterations: slow ramp-up from y₀=0 (warm-up phase)
-            - Late iterations: y_t → exponentially weighted long-term average of x,
-             ≈ lr0/(1- β) · E[gn²] ≈ lr0/(1- β) (since E[gn²] ≈ 1 for normalized grad)
-            
-            3. Trust-region clipping:
-            out = clip(y_t, max=lr0)
-            
-            4. Layer-aware averaging:
-            If per_lay=True: return mean(out)  (scalar per layer)
-        
-            5. Output bounds (element-wise):
- 
-            out ∈ [0, lr0]
-
-            The upper bound is determined by the clip operation.
-            However, β controls *convergence speed* to the bound:
-            - β → 1.0: Slower convergence (more stable, longer memory)
-            from 0 toward steady-state ceiling of input magnitude
-
-
-            Comparison to par-correlation estimators (a1, a2):
-                Low overhead: only needs squaring of gn, no weight access.
-                Robust to sign-flips or oscillation: squaring removes direction.
-                Slower convergence to upperbound compared to a1 or a2, since (1-β) norm. factor in the EMA.
-                Tunable. Since y1 = (1-β) · lr0 = ε, can set lr0 = ε/(1-β)
-
-            Comparison to constant numerator = `lr0 · 1`
-                Natural warmup, adaptative to current grad scale.
-                More robust than fixed `lr0`.
-
-
-            6. Args:
-            `lr0` : float. trust-region constant (scale).
-            `betas` : tuple. `betas[0]` = β (single pole), typically β → 1.0
-            `t` : float. iteration count.
-            `gn` : Tensor. normalized gradient direction (shape matches parameter `w`).
-            `s` : Tensor. EMA state (memory) for this estimator.
-        
-        Output:
-            Tensor: the estimated numerator (scalar if per_lay=True, else same shape as gn).
-        
-        Usage:
-            Called from `lr_t(...)` when `lr_cfg[2] == 6`.
         
         '''
-        # prefilter
-        inp = lr0 * torch.clip(gn*gn, max=self.cf)
         # estimate
-        out, s = _lpf_can_t(s, inp, t, betas[0], eta=0)
+        out, s = _lpf_can_t(s, lr0*(gn @ gn.t()), t, betas[0])
         out.clip_(max=lr0)
-        # layer-aware smoothing
-        return torch.mean(out) if self.per_lay else out
+        return out
 
 
     def step(self, closure=None, history=None):
@@ -1554,6 +1588,11 @@ class AutoSGM(Optimizer):
             for p in group['params']:
                 if not getattr(p, 'requires_grad', True): continue
                 _ = self.lazyinit_param(p, group)
+
+    def debug(self, group, history, p, g, w, gpow, v, numlr):
+        if group['dbg'] and history is not None:
+            with torch.no_grad():
+                self.update_ltv_hist(p, history, w, g, gpow, v, numlr)
 
     def update_ltv_hist(self, p, history, w, g, gpow, v, numlr):
             

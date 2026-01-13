@@ -150,7 +150,7 @@ gamma = 1 - math.sqrt(2*(1-beta)) # ~ 0.55
 # 8. in the lr algorithm, in addition to moment estimation, 
 # enable partial-correlation (parcor) estimation, 
 # The rest of the configuration remains the same, except in lr_cfg.
-optnum = 1 
+optnum = 1 # or 2.
 opt6 = AutoSGM(
     model.parameters(),
     lr_cfg=(True, 1e-3, optnum),  
@@ -160,9 +160,8 @@ opt6 = AutoSGM(
     eps_cfg=(1e-8,)   
 )
 
-# The actual parcor options are 1 or 2.
+# change the lr numerator to a moment estimator, 
 optnum = 3
-# using parcor estimation with moment estimation, 
 # allows an higher learning rate than using only moment estimation,
 # so instead of 1e-3, we may try something close but bigger like 1e-2
 # The rest of the configuration remains the same, except in lr_cfg.
@@ -262,11 +261,11 @@ opt.zero_grad()
     - **False**: use `lr_init` as a constant learning rate.
   - `lr_init`: *float*. trust-region constant used by the iteration-dependent ratio function when `aoptlr=True`
   - `num_lrc`: *int*. (0,1,2,3,4) select an estimator for the learning-rate numerator 
-    - *0*: robust moment estimator + unity numerator (baseline). 
-    - *1*: robust moment estimator + parcor estimator.
-    - *2*: robust moment estimator + parcor estimator, with Huberized-Markov prefilter
-    - *3*: robust moment estimator + moment estimator.
-    - *4*: robust moment estimator + unity numerator, with Huberized prefilter.
+    - *0*: [robust] moment estimator + unity numerator (baseline). 
+    - *1*: [robust] moment estimator + parcor estimator.
+    - *2*: [robust] moment estimator + parcor estimator, with Huberized prefilter
+    - *3*: [robust] moment estimator + moment estimator.
+    - *4*: [robust] moment estimator + unity numerator, with Huberized prefilter.
 
 > Filtering (gradient smoothing (lowpass regularization) and exponential moving averages (EMAs))
 - `beta_cfg` = (`beta_n`, `beta_a`, `beta_i`, `gamma_i`, `eta_i`, `debias`)
