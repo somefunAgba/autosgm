@@ -7,9 +7,7 @@
 
 -  **Momentum** in (Polyak's Heavy Ball, **PHB** and Nesterov's Accelerated Gradient, **NAG**) are <a href="https://somefunagba.github.io/asgm_qsim" target="_blank"> **points in the design space**</a> of a **first-order lowpass filter**
 
-- **Moment estimation** ( that is Adaptive Moment Estimation **Adam**) of the gradient's moment is part of an optimal iteration-dependent *learning rate* function.
-
-- The ratio-function of a **correlation estimator** and a **moment estimator** is an optimal iteration-dependent learning rate oracle.
+- **Moment estimation** ( that is Adaptive Moment Estimation **Adam**) of the gradient's moment and **Partial-correlation estimators** are part of optimal iteration-dependent *learning rate* functions.
 
 - Smoothing the gradient via the **first-order lowpass filter** is approximately smoothing the loss function, so its primary function is regularization not acceleration.
 
@@ -66,7 +64,7 @@ opt0 = AutoSGM(
     lr_cfg=(False, 1e-3, 0),  
     beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
     wd_cfg=(1e-4, 0),   
-    eps_cfg=(1e-8, False) 
+    eps_cfg=(1e-8, ) 
 )
 
 # We decide to:
@@ -82,7 +80,7 @@ opt1 = AutoSGM(
     beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
     rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0),
     wd_cfg=(1e-4, 0),   
-    eps_cfg=(1e-8, False) 
+    eps_cfg=(1e-8, ) 
 )
 
 
@@ -96,7 +94,7 @@ opt2 = AutoSGM(
     beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
     rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0),
     wd_cfg=(1e-4, 0),   
-    eps_cfg=(1e-8, False) 
+    eps_cfg=(1e-8, ) 
 )
 
 # 3. activate gradient smoothing, 
@@ -114,7 +112,7 @@ opt3 = AutoSGM(
     beta_cfg=(0.9999, 0.999, beta, 0.0, 0, True)
     rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0),
     wd_cfg=(1e-2, 1),   
-    eps_cfg=(1e-8, False) 
+    eps_cfg=(1e-8, ) 
 )
 
 # 5. use NAG: adjust the gradient smoothing filter's zero location from 0 to beta / (1 + beta)
@@ -128,7 +126,7 @@ opt4 = AutoSGM(
     beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
     rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0),
     wd_cfg=(1e-2, 1), 
-    eps_cfg=(1e-8, False)   
+    eps_cfg=(1e-8,)   
 )
 
 # 6. decide to use a different window as the lr schedule  
@@ -141,7 +139,7 @@ opt5 = AutoSGM(
     beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
     rc_cfg=(2, 0, 0, 1, 1, num_epochs, iters_epoch, 1, 0),
     wd_cfg=(1e-2, 1), 
-    eps_cfg=(1e-8, False)   
+    eps_cfg=(1e-8,)   
 )
 
 
@@ -152,29 +150,29 @@ gamma = 1 - math.sqrt(2*(1-beta)) # ~ 0.55
 # 8. in the lr algorithm, in addition to moment estimation, 
 # enable partial-correlation (parcor) estimation, 
 # The rest of the configuration remains the same, except in lr_cfg.
-parcor = 1 
+optnum = 1 
 opt6 = AutoSGM(
     model.parameters(),
-    lr_cfg=(True, 1e-3, parcor),  
+    lr_cfg=(True, 1e-3, optnum),  
     beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
     rc_cfg=(2, 0, 0, 1, 1, num_epochs, iters_epoch, 1, 0),
     wd_cfg=(1e-2, 1), 
-    eps_cfg=(1e-8, False)   
+    eps_cfg=(1e-8,)   
 )
 
-# The actual parcor options are 3 or 4.
-parcor = 3
+# The actual parcor options are 1 or 2.
+optnum = 3
 # using parcor estimation with moment estimation, 
-# allows us to use an higher learning rate than using only moment estimation,
+# allows an higher learning rate than using only moment estimation,
 # so instead of 1e-3, we may try something close but bigger like 1e-2
 # The rest of the configuration remains the same, except in lr_cfg.
 opt7 = AutoSGM(
     model.parameters(),
-    lr_cfg=(True, 1e-2, parcor),  
+    lr_cfg=(True, 1e-2, optnum),  
     beta_cfg=(0.9999, 0.999, beta, gamma, 0, True),
     rc_cfg=(2, 0, 0, 1, 1, num_epochs, iters_epoch, 1, 0),
     wd_cfg=(1e-2, 1), 
-    eps_cfg=(1e-8, False)   
+    eps_cfg=(1e-8,)   
 )
 
 
@@ -244,11 +242,11 @@ iters_epoch = 100000
 # Example: spawn an AutoSGM instance, with cosine annealing.
 opt = AutoSGM(
     model.parameters(),
-    lr_cfg=(True, 1e-2, 3),            # setup learning-rate (lr) algorithm
+    lr_cfg=(True, 1e-2, 3),      # setup learning-rate (lr) algorithm
     beta_cfg=(0.9999, 0.999, 0.9, 0.5528, 0, True), # setup filters: averaging, and grad smoothing
     rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0), # setup window (lr schedule)
-    wd_cfg=(0.0, 0),                  # setup weight decay
-    eps_cfg=(1e-10, True),            # setup numerical eps
+    wd_cfg=(0.0, 0),             # setup weight decay
+    eps_cfg=(1e-10,),            # setup numerical eps
 )
 
 # update parameters in training loop
@@ -263,12 +261,12 @@ opt.zero_grad()
     - **True**: use the iteration-dependent ratio function of a moment estimator, and a correlation estimator as the learning rate. 
     - **False**: use `lr_init` as a constant learning rate.
   - `lr_init`: *float*. trust-region constant used by the iteration-dependent ratio function when `aoptlr=True`
-  - `num_lrc`: *int*. (0,1,2,3,4) select numerator or a partial-correlation (**parcor**) estimator for the ratio function
-    - *0*: robust moment estimator + simple correlation-like term = 1 (baseline). 
-    - *1*: robust moment estimator + simple correlation-like term <= 1. Huber-Chebyshev variant (more robust than *0*).
-    - *2*: robust moment estimator + correlation-like estimator. Relaxed upper-bound variant
-    - *3*: robust moment estimator + parcor estimator. Huberized-Markov variant
-    - *4*: robust moment estimator + parcor estimator. Huberized-Chebyshev variant
+  - `num_lrc`: *int*. (0,1,2,3,4) select an estimator for the learning-rate numerator 
+    - *0*: robust moment estimator + unity numerator (baseline). 
+    - *1*: robust moment estimator + parcor estimator.
+    - *2*: robust moment estimator + parcor estimator, with Huberized-Markov prefilter
+    - *3*: robust moment estimator + moment estimator.
+    - *4*: robust moment estimator + unity numerator, with Huberized prefilter.
 
 > Filtering (gradient smoothing (lowpass regularization) and exponential moving averages (EMAs))
 - `beta_cfg` = (`beta_n`, `beta_a`, `beta_i`, `gamma_i`, `eta_i`, `debias`)
@@ -294,9 +292,8 @@ opt.zero_grad()
     - **1** parameter-level decoupling of weight decay from gradient smoothing.
 
 > Epsilon
-- `eps_cfg` = (`eps`, `repeat_eps`)
+- `eps_cfg` = (`eps`,)
   - `eps`: *float*. small positive constant used for numerical stability (avoid division by zero).
-  - `repeat_eps`: *bool*. **True** | **False** indicates whether `eps` should be applied once or twice during gradient normalization.
 
 > Windowing (Learning-rate schedule)
 - `rc_cfg` = (`rcm`, `inseq`, `x`, `n`, `m`, `tau`, `spe`, `cfact`, `e`)

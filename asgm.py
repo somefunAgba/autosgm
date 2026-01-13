@@ -146,14 +146,14 @@ def _hub_cheb_v1(x, s1, s2, t, beta, a, eps):
     torch.sqrt_(xvar).add_(eps)
     return _huber_c(x, xmag, xvar, a)
 
-def _hub_cheb_s1(x, s1, s2, t, beta, a, eps):
-    ''' scalar version '''
-    xn = torch.norm(x)
-    xm, s1 = _lpf_can(s1, xn, t, beta)
-    xmag = torch.norm(x-xm).add(eps)
-    xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
-    torch.sqrt_(xvar).add_(eps)
-    return _huber_c(x, xmag, xvar, a)
+# def _hub_cheb_s1(x, s1, s2, t, beta, a, eps):
+#     ''' scalar version '''
+#     xn = torch.norm(x)
+#     xm, s1 = _lpf_can(s1, xn, t, beta)
+#     xmag = torch.norm(x-xm).add(eps)
+#     xvar, s2 = _lpf_can(s2, xmag*xmag, t, beta)
+#     torch.sqrt_(xvar).add_(eps)
+#     return _huber_c(x, xmag, xvar, a)
 
 # def _hub_mark_vd(x, s, t, beta, v, eps):
 #     ''' vectorized, dynamic scale'''
@@ -881,29 +881,6 @@ class WINF_II():
         return y
 
 
-# def ndecorr(x, xvar, dvar, dpc, dpcx, t, betas, eps, cf, lr0):
-#     '''Naive Decorrelate x'''
-
-#     ds = -(x - torch.sum(x))
-
-#     _, xvar = _lpf_can(xvar, x*x, t, betas[0])     
-#     # moment estimate
-#     dpow, dvar = _lpf_can(dvar, ds*ds, t, 
-#         betas[1], eta=betas[4], debias=betas[5])     
-#     torch.sqrt_(dpow).add_(eps)
-#     ds /= dpow    
-
-#     # robust par-corr estimate: markov-style
-#     lr0m = lr0/(1+xvar)
-#     inp = lr0m * _hub_mark_v(x*ds, dpcx, t, betas[0], cf, eps)
-#     out, dpc = _lpf_can(dpc, inp, t, betas[0], eta=1)
-#     # clip `out` around trust-region `lr0`
-#     out.abs_()
-#     out.clip_(min=_tuckey(dpow)*lr0m)
-#     out.clip_(max=lr0*(1+xvar))
-
-#     # update
-#     return x - (out*ds)    
 
 # ---------- PyTorch Optim. Class ----------
 
@@ -914,11 +891,11 @@ class AutoSGM(Optimizer):
     """
         
     def __init__(self, params, *,
-                 lr_cfg:Tuple=(True, 1e-3, 0), 
+                 lr_cfg:Tuple=(True, 1e-2, 5), 
                  beta_cfg:Tuple=(0.9999, 0.999, 0.9, 0, 0, True), 
                  rc_cfg:Tuple=(0, 0, 0, 2, 1, 1000, 1, 1, 0), 
                  wd_cfg:Tuple=(0, 0), eps_cfg:Tuple=(1e-10, True), 
-                 miscs:Tuple=(1,), maximize:bool=False, cf:float=4, debug:bool=False):  
+                 miscs:Tuple=(1,), maximize:bool=False, debug:bool=False):  
         """
         Implements AutoSGM with approximate variants of an optimal learning rate (lr) function, and cosine annealing (rc).
         
@@ -926,13 +903,14 @@ class AutoSGM(Optimizer):
         Args:
          `params` (`iterable`): iterable of parameters to optimize or dicts defining parameter groups.
                       
-         `lr_cfg` (`bool`,`float`,`int`): lr_cfg (default: (`True`, `0.001`, `0`), optional). Choose an optimal lr approximation in AutoSGM.
+         `lr_cfg` (`bool`,`float`,`int`): lr_cfg (default: (`True`, `0.01`, `5`), optional). Choose an optimal lr approximation in AutoSGM.
 
             `aoptlr` (`bool`, default: `True`) set as `True` to use approx. realizations of an optimal learning rate (moment estimation (normalized gradient) and a possibly varying partial correlation estimation). set to `False` indicating to use an un-normalized gradient and constant lr.
 
-            `lr_init` (`float`, default: `1e-3`) is the learning rate constant if `aoptlr` is False. However, if `aoptlr` is `True`, it serves as a scale factor for realizing a partial correlation numerator estimate of an optimal learning rate. 
+            `lr_init` (`float`, default: `1e-2`) is the learning rate constant if `aoptlr` is False. However, if `aoptlr` is `True`, it serves as a trust-region constant for realizing an optimal choice of learning rate. It that can be tuned to ensure uniformly stable updates across parameters.
 
-            `num_lrc` (`int`, default: `0`) use to choose variant for estimating the optimal lr's partial corrleation numerator estimate when `aoptlr` is True. Expects a value in `{0,1,2}`. The value `0` indicates a maximum partial correlation constant equal to `lr_init`. The values `1` and `2` each indicate iteration-dependent partial correlations varied from an initial value of 0, and `lr_init` is a small constant that can be tuned to ensure uniformly stable updates across parameters.
+            `num_lrc` (`int`, default: `5`) when `aoptlr` is True, use to choose an optimal lr's partial corrleation numerator realization. Expects a value in `{0,1,2,3,4}`. 
+            Setting as `0` indicates a fixed numerator, otherwise iterative estimates are used.
 
          `wd_cfg` (`float`, `int`): wd_cfg (defaut: (0, 0), optional), set weight decay regularization.
 
@@ -982,12 +960,10 @@ class AutoSGM(Optimizer):
          
          `miscs` (`int`): miscs (default: (1), optional). miscellanous cfg.
             
-            `layer_wise` (`int`, default:`1`). indicate if parameters are presented layer-by-layer.
+            `layer_wise` (`int`, default:`1`). indicates if parameters are layer-by-layer.
         
-         `maximize` (`bool`): maximize (default: `False`, optional). indicate the optimization direction. `False` if minimizing, otherwise, it indicates maximizing the learning objective.         
-         
-         `cf` (`float`): cf (default: `4`, optional). scale constant in markov's inequality. confidence iinterval ~ (1/cf, 1-(1/cf)).
-                         
+         `maximize` (`bool`): maximize (default: `False`, optional). indicates the optimization direction. `False` if minimizing, otherwise, it indicates maximizing the learning objective.         
+                                  
 
         .. note:: 
             This is an implementation of a stochastic gradient learning framework for deep learning models.
@@ -997,7 +973,9 @@ class AutoSGM(Optimizer):
         # access, e.g: optimizer.defaults['lr_cfg']
 
         # init. store inputs as optimizer `defaults`
-        defaults = dict(dbg=debug, cf=cf, lr_cfg=lr_cfg, wd_cfg=wd_cfg, eps_cfg=eps_cfg, maximize=maximize, beta_cfg=beta_cfg, msc_cfg=miscs, rcf_cfgs=rc_cfg, com_sets=None)
+        defaults = dict(dbg=debug, lr_cfg=lr_cfg, wd_cfg=wd_cfg, 
+            eps_cfg=eps_cfg, maximize=maximize, beta_cfg=beta_cfg, 
+            msc_cfg=miscs, rcf_cfgs=rc_cfg, com_sets=None)
 
         super().__init__(params, defaults)
         
@@ -1014,14 +992,22 @@ class AutoSGM(Optimizer):
     def lazyinit_param(self, p, group):  
         # Lazy Init [self.state]       
         state = self.state[p]
+
         if len(state) == 0:
-            dtype, device = p.dtype, p.device         
+            dtype, device = p.dtype, p.device  
+
+            state['lr_cfg'] = group['lr_cfg']
+            state['beta_cfg'] = group['beta_cfg']   
+            state['wd_cfg'] = group['wd_cfg']
+            state['eps_cfg'] = group['eps_cfg'] 
+            state['msc_cfg'] = group['msc_cfg']
+            state['rcf_cfgs'] = group['rcf_cfgs']
+            state['maximize'] = group['maximize']
             
-            dbg = group['dbg']
-            aoptlr, lr0, num_lrc = group['lr_cfg']
+            
             rc_cfg = group['rcf_cfgs']
-            per_lay, = group['msc_cfg']   
-            eps1 = group['eps_cfg'][0]     
+            per_lay, = group['msc_cfg']  
+            state['per_lay'] = per_lay
 
             state['dtype_dev'] = (dtype, device)
 
@@ -1033,37 +1019,38 @@ class AutoSGM(Optimizer):
             state['g_var'] = torch.zeros_like(p.real) 
 
             # network weights (parameters)
-            state['w'] = _nz(p.real.clone().detach(), eps1) 
+            state['w'] = _nz(p.real.clone().detach(), group['eps_cfg'][0])
                 
             # lr.
             state['pc'] = None            
             state['wsq'] = None 
-            state['pc_mag'] = None                           
-            state['pc_var'] = None    
-            state['hcmag'] = None
-            state['hcvar'] = None    
-            if aoptlr:
-                if num_lrc in [1, ]:
-                    state['hcmag'] = torch.zeros(1, device=p.device)
-                    state['hcvar'] = torch.zeros(1, device=p.device)      
+            state['pc_mag'] = None                             
+            state['cmag'] = None
+            state['cvar'] = None 
+            state["lr_num"] = torch.zeros(1, device=p.device)   
+            state['one'] = torch.ones(1, device=p.device) 
+            state['cf'] = 4
 
-                if num_lrc in [2, 3, 4,]:
+            
+            if group['lr_cfg']:
+                if group['lr_cfg'][2] in [3, ]:
+                    state['cmag'] = torch.zeros(1, device=p.device)
+                    state['cvar'] = torch.zeros(1, device=p.device)      
+
+                if group['lr_cfg'][2] in [1, 2, 4, 5, 6]:
                     state['pc'] = torch.zeros_like(p.real)
+
+                if group['lr_cfg'][2] in [1, 2, 4,]:
                     state['wsq'] = torch.zeros_like(p.real)
 
-                if num_lrc in [3, ]:
+                if group['lr_cfg'][2] in [2, ]:
                     state['pc_mag'] = torch.zeros_like(p.real)
-                    state['pc_var'] = 1 # torch.ones_like(p.real)
 
-                if num_lrc in [4, ]:
-                    state['pc_mag'] = torch.zeros_like(p.real)
-                    state['pc_var'] = torch.zeros_like(p.real)
+                if not per_lay: 
+                    state['lr_num'] = torch.zeros_like(p.real)      
+                     
 
-                state["lr_num"] = torch.zeros(1, device=p.device) if per_lay else torch.zeros_like(p.real)       
-            else:
-                state["lr_num"] = torch.zeros(1, device=p.device) 
-
-            if dbg:
+            if group['dbg']:
                 state['g[t]'] = torch.zeros_like(p.real) 
 
                 state['alpha[t]'] = torch.ones_like(p.real)
@@ -1084,70 +1071,55 @@ class AutoSGM(Optimizer):
         '''
         Inits and Updates state of params that have gradients.
         '''
-        self.dbg = group['dbg']
-        self.eps = group['eps_cfg'][0]
-        self.spe = group['rcf_cfgs'][5]
-        self.tau_win = group['rcf_cfgs'][4]*group['rcf_cfgs'][5]
-        self.cf = group['cf']
-
-        aoptlr, lr0, num_lrc = group['lr_cfg']
-        ngrad = aoptlr
-
-        betas = group['beta_cfg'] # beta_i,gamma_i,eta,debias = betas[2:]
-        wcf = group['wd_cfg'] # wd_cte,wd_lvl = group['wd_cfg']
-        scf = group['eps_cfg'] # eps1,repeat_eps = group['eps_cfg']
-
-        per_lay, = group['msc_cfg']
-        self.per_lay = per_lay
-
-        maximize = group['maximize']
-        
         for p in group['params']:
             if p.grad is None: continue
 
             ##STATES.
-            state = self.lazyinit_param(p, group)      
-            
+            state = self.lazyinit_param(p, group) 
+            maximize = state['maximize']    
+            rc_cfg = state['rcf_cfgs'] # window function config.
             state['step'] += 1
-            if state['step'] % self.spe == 1: state['epoch'] += 1
+            if state['step'] % rc_cfg[5] == 1: state['epoch'] += 1
 
             t = state['step'].item() 
-            k = state['epoch'].item() 
+            k = state['epoch'].item() # epoch index
 
             g = 1*p.grad # cloned
             w = state['w']
 
-            ##----*
             ##UPDATEs.          
 
             # (window function) defaults to 1, if not active.
             rca = state['rcf'].step(t, k)
-            
-            # grad-stats!
-            g, gpow, gn, v = self.ong(state, w, g, ngrad,
-                t, betas, scf, wcf)  
 
-            # lr numerator @ current iteration
-            numlr = self.lr_t(state, aoptlr, num_lrc, lr0, betas, 
-                t, w, gpow, gn, v)
+            # grad-stats!
+            g, gpow, u, v = self.grad_stats(state, w, g, t)  
             
-            if self.dbg and history is not None:
+            # lr numerator @ current iteration
+            numlr = self.lr_t(state, t, w, g, gpow, u, v)        
+
+            if group['dbg'] and history is not None:
                 with torch.no_grad():
-                    self.update_ltv_hist(p, history, betas, wcf, t, w, g, gpow, v, rca*numlr)
+                    self.update_ltv_hist(p, history, w, g, gpow, v, rca*numlr)
 
             # param. update !
             if maximize: v.neg_()
             w -= (rca*v*numlr)
 
+
             # pass update to the net. (model) !
             with torch.no_grad(): p.copy_(w)
 
-
-    def ong(self, state, w, g, ngrad, 
-            t, betas, scf, wcf):
-        '''gradient stats.'''
+    def grad_stats(self, state, w, g, t):
+        '''gradient stats.
+        returns: grad, grad power, grad direction, smooth grad direction.
+        '''
         gsm = state['g_sm']
         gvar = state['g_var']
+        ngrad = state['lr_cfg'][0]
+        betas = state['beta_cfg']
+        scf = state['eps_cfg']
+        wcf = state['wd_cfg']
 
         eta = (1-betas[2])/(1-betas[3])
         # weight-decay!
@@ -1157,75 +1129,83 @@ class AutoSGM(Optimizer):
 
         # lr denominator @ current iteration
         # grad's power est!
+
         gpow = 1
         if ngrad:
             gpow, gvar = _lpf_can_t(gvar, g*g, t, 
                 betas[1], eta=betas[4], debias=betas[5])     
             if scf[1]: gpow += scf[0]
             torch.sqrt_(gpow)
-            gpow += scf[0]
-        # normalized grad (via lr denominator).
-        gn = g/gpow 
+            gpow += scf[0]        
 
         # smooth grad!
         v, gsm = _lpf_can_t(gsm, g, t, 
             betas[2], betas[3], betas[4], debias=betas[5])
-        # normalized input (via lr denominator).
+
+        # grad. and smooth grad direction (via lr denominator).
+        u = g/gpow 
         v /= gpow
-        # partial weight decoupling: from grad. smoothing, and energy.
+        # add decayed weight to normalized [smooth] grad.
         if wcf[1]: v += eta*wd
 
-        return g, gpow, gn, v
+        return g, gpow, u, v
+                 
+    def lr_t(self, state, t, w, g, gpow, gn, v):
+        ''' pick learning rate numerator [often per layer]
 
-    def lr_t(self, state, aoptlr, num_lrc, lr0, betas, 
-            t, w, gpow, gn, v):
-        ''' pick learning rate numerator 
-
-        If `aoptlr` is `True`, `lr0` is a trust-region constant for the iteration-dependent learning rate. Otherwise `lr0` is the constant learning rate, the denominator is 1.
+        If `aoptlr` is `True`, `lr0` is a trust-region constant for the iteration-dependent learning rate. 
+        Otherwise `lr0` is the constant learning rate, the denominator is 1.
 
         '''
         # iteration-dep. partial weight-grad correlation estimator 
-        lrn = state['lr_num']
-        if aoptlr:     
+
+        lrn = state['lr_num']                
+        s = state['pc']
+        wsq = state['wsq']
+        one = state['one']
+        pcx = state['pc_mag']
+        self.cf = state['cf']
+        self.eps = state['eps_cfg'][0]
+        self.per_lay = state['per_lay']
+        
+        betas = state['beta_cfg']
+        lr0 = one*state['lr_cfg'][1]
+        if state['lr_cfg'][0]:     
             # opt lr's numerator
-            if num_lrc == 0: # denominator only.
-                return lr0  # lr0*1
-            elif num_lrc == 1: # 
-                grm = state['hcmag']
-                grv = state['hcvar']
-                numlr = self.a1(lr0, v, grm, grv, t, betas[0])
-                return numlr
-            elif num_lrc == 2: # relaxed estimate.
-                s = state['pc']
-                numlr = self.a2(lr0, betas, t, w, gn, s)  
-                numlr, lrn = _lpf_can(lrn, numlr, t, beta=0.1) # smooth!   
-                return numlr
-            elif num_lrc == 3: # default. robust par-corr estimate. 
-                s = state['pc']
-                wsq = state['wsq']
-                pcx = state['pc_mag']
-                pcv = state['pc_var']
+            if state['lr_cfg'][2] == 0: # denominator only.
+                # trust-region const.
+                return lr0         
+            elif state['lr_cfg'][2] == 1: # robust par-corr estimate.  
+                _, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
+                numlr = self.a1(lr0,betas,t,w,v,wsq,s)
+                numlr, lrn = _lpf_can(lrn, numlr, t, beta=0.1) # smooth!  
+                return numlr            
+            elif state['lr_cfg'][2] == 2: # robust par-corr estimate. 
                 _, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
                 lr0m = lr0/(1+wsq)
-                numlr = self.a3(lr0m,betas,t,w,gn,wsq,s,pcx,pcv,gpow)  
+                numlr = self.a2(lr0m,betas,t,w,v,wsq,s,pcx,gpow)  
                 numlr, lrn = _lpf_can(lrn, numlr, t, beta=0.1) # smooth!  
                 return numlr
-            elif num_lrc == 4: # robust par-corr estimate.             
-                s = state['pc']
-                wsq = state['wsq']
-                pcx = state['pc_mag']
-                pcv = state['pc_var']
-                _, wsq = _lpf_can(wsq, _sq(w), t, betas[0])
-                lr0m = lr0/(1+wsq)
-                numlr = self.a4(lr0m,betas,t,w,gn,wsq,s,pcx,pcv,gpow)  
-                numlr, lrn = _lpf_can(lrn, numlr, t, beta=0.1) # smooth!  
+            elif state['lr_cfg'][2] == 3: # experimental
+                grm = state['cmag']
+                grv = state['cvar']
+                numlr = self.a3(lr0, v, grm, grv, t, betas[0])
                 return numlr
-          
+            elif state['lr_cfg'][2] == 4: # relaxed upper-bound par-corr estimate.
+                numlr = self.a4(lr0, betas, t, w, gn, s)  
+                numlr, lrn = _lpf_can(lrn, numlr, t, beta=0.1) # smooth!   
+                return numlr
+            elif state['lr_cfg'][2] == 5: # moment est.
+                numlr = self.a0(lr0, betas, t, gn, s)  
+                return numlr
+            elif state['lr_cfg'][2] == 6: # moment est.
+                numlr = self.a0v(lr0, betas, t, gn, s)  
+                return numlr
         else: # constant, no normalization
             return lr0
         
-    def a1(self, lr0, x, s1, s2, t, beta):
-        ''' scalar [robust-cheb] corr. <=1 '''
+    def a3(self, lr0, x, s1, s2, t, beta):
+        ''' experimental, scalar [robust-cheb] corr. <=1 '''
         xn = torch.norm(x)
         xm, s1 = _lpf_can(s1, xn, t, beta)
         xmag = torch.norm(x-xm).add(self.eps)
@@ -1233,21 +1213,111 @@ class AutoSGM(Optimizer):
         torch.sqrt_(xvar).add_(self.eps)
         # lr0 * (1/xmag) * min(xmag, self.cf*xvar)
         return _hubg(lr0, xmag, xvar, self.cf)
-        
-    
-    def a2(self, lr0, betas, t, w, gn, s):
+           
+    def a4(self, lr0, betas, t, w, gn, s):
         '''[relaxed upbnd.] par-corr. variant
 
-        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes an EMA estimate of the maximum partial-correlation relaxed by `lr0`. Ensuring that the effective estimate remains within the trust-region envelope, the resulting EMA estimate is clipped within `[0, lr0]`, Finally, the estimates are averaged across the layer to yield a single, uniform estimate.      
+        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of 
+        the par-corr update. This variant computes the partial-correlation upper-bound
+        relaxed by `lr0`. EMA estimate is clipped within `[0, lr0]`.
+        Finally, the estimates are averaged across the layer to yield a single, uniform estimate.      
         '''
         # safes: clip (in + out), take mean
         out, s = _lpf_can(s, (_sq(w)+_sq(gn))*lr0, t, betas[0])
         return torch.mean(out.clip(max=lr0)) if self.per_lay else out
     
-    def a3(self, lr0m, betas, t, w, gn, wsq, s, pcx, pcv, gpow):
+    def a2(self, lr0m, betas, t, w, gn, wsq, s, pcx, gpow):
         '''[robust-markov] par-corr. est.
         
-        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes a robust EMA estimate of the partial-correlation via a Huber-transformed weight-gradient product `w*gn` relative to its expected magnitude `pcx`. To ensure that the effective estimate remains within the trust-region envelope, a Tukey-transform is additionally used to clip the resulting EMA estimate to be within `[0, lr0*(1+E[wsq])]`, Finally, the estimates are averaged across the layer to yield a single, uniform estimate.     
+        Computes a robust estimate of learning rate numerator via 
+        Markov-inequality-based input pre-filtering using both a 
+        Huber-clipped input weight-gradient and Tukey-biweight output clipping,
+        around the trust-region constant `lr0`.
+        
+        `lr0 · E[w · gn]`
+   
+            Let β = betas[0] (β → 1.0).
+
+            lr0m = lr0 / (1+wsq) (trust-region scaled by |E[w·gn]|), 
+            where wsq ≈ E[w²]
+            
+            1. Input pre-filtering to suppress outliers before entering the EMA.
+            x = lr0m · sign(w·gn) · min(|w·gn|, a·E[|w·gn|])
+            where a = self.cf (typically 4, Markov inequality parameter)
+            
+            3. Exponential averaging via y_t = β · y_{t-1} +  x_t
+            
+            - Effective exponential window length ≈ 1/(1-β) iterations
+            - Early iterations: slow ramp-up from y₀=0 (warm-up phase)
+            - Late iterations: y_t → exponentially weighted long-term average of x
+            
+            4. Trust-region clipping with Tukey biweight lower bound:
+            τ(gpow) = (1 - gpow²)² · gpow,  with gpow ∈ [0,1]
+            τ(gpow) biweight properties:
+                • τ(0) = 0, τ(1) = 0
+                • τ_max occurs at ≈ 0.2857, that is gpow ≈ 0.4472 (= 1/√5)
+                • Encourages moderate gradient power (suppresses extreme scales)
+            
+            out = clip(|y_t|, min=τ(gpow)·lr0m, max=lr0m·(1+wsq)²)
+            
+            5. Layer-aware averaging:
+            If per_lay=True: return mean(out)  (scalar per layer)
+        
+            6. Output bounds (element-wise):
+ 
+            out ∈ [lr0/(1+E[w²]) · τ(gpow), lr0·(1+E[w²])].
+
+            The upper bound is same as a1.
+            Lower bound can be nonzero due to Tukey biweight.
+            
+            • Convergence to bounds (faster than a1 due to pre-filtering):
+            - Pre-filter removes spikes → LPF input more stable → faster saturation
+            - β → 1.0: Slower convergence (more stable, longer memory)
+            from 0 toward steady-state ceiling of input magnitude
+            • Robust to both spike outliers and statistical noise, due to:
+            Outlier suppression before EMA + Tukey clipping after EMA.
+                 
+
+            Notes:
+                Markov inequality: `P(|X| > a·E[|X|]) ≤ 1/a`
+                `a=4` → at most 25% of samples exceed the clipping threshold
+                Huber m-estimator: robust mean estimator
+                Tukey biweight: `ρ(u) = u(1-u²)²` for `|u|≤1`
+        
+            6. Args:
+
+            `lr0m` : float
+                Scaled trust-region constant: lr0m = lr0 / (1+wsq).
+            `betas` : tuple
+                betas[0] = β (single pole), typically β → 1.0
+            `t` : float
+                Iteration count (1, 2, 3, ...).
+            `w` : Tensor
+                Model weights/parameters (shape: arbitrary, typically [batch_size, ...])
+            `gn` : Tensor
+                Normalized gradient direction (typically smooth_grad / grad_power)
+                Shape same as w.
+            `wsq` : Tensor
+                weight moment estimate. Shape same as w.
+            `s` : Tensor
+                EMA state (memory). Shape same as w.    
+            `pcx` : Tensor
+                Partial correlation magnitude (expected |w·gn|). 
+                Used by _hub_mark_v to scale Huber clip. Shape same as w.
+            `gpow` : Tensor
+                Square-root of gradient moment estimate.
+                Used to compute Tukey lower bound τ(gpow). Shape same as w.
+    
+        
+        Output: 
+            Tensor (scalar if `per_lay`=`True`, else shape of `w`)
+            Learning rate numerator estimate, bounded in [`0`, `lr0·(1+wsq)`].
+
+        Usage context:
+            Called from `lr_t(...)` when `lr_cfg[2]==2`.
+            The returned estimate is smoothed again by an outer single-pole LPF (short-term memory) 
+            before being used as the learning rate numerator.
+        
         '''
         # markov-style: clip input
         inp = lr0m * _hub_mark_v(w*gn, pcx, t, betas[0], self.cf, self.eps)
@@ -1258,20 +1328,210 @@ class AutoSGM(Optimizer):
         # layer-aware smoothing
         return torch.mean(out) if self.per_lay else out
 
-    def a4(self, lr0m, betas, t, w, gn, wsq, s, pcx, pcv, gpow):
-        '''[robust-cheb] par-corr. est.
+    def a1(self, lr0, betas, t, w, gn, wsq, s):
+        '''[robust] par-corr. est.
         
-        Here, `lr0` serves as a trust-region constant that bounds the admissible scale of the par-corr update. This function computes a robust EMA estimate of the partial-correlation via a Huber-transformed weight-gradient product `w*gn` relative to its expected magnitude `pcx` and variance `pcv`. To ensure that the effective estimate remains within the trust-region envelope, a Tukey-transform is additionally used to clip the resulting EMA estimate to be within `[0, lr0*(1+E[wsq])]`, Finally, the estimates are averaged across the layer to yield a single, uniform estimate.     
+        Computes a robust estimate of the learning rate numerator via 
+        exponential moving average of the weight-gradient product, 
+        clipped around the trust-region constant `lr0`.
+        
+        `lr0 · E[w · gn]`
+   
+            Let β = betas[0] (β → 1.0).
+            
+            1. Input scaling: x = lr0 · w · gn (weight-gradient product)
+            
+            2. Exponential averaging via y_t = β · y_{t-1} +  x_t
+            
+            - Effective exponential window length ≈ 1/(1-β) iterations
+            - Early iterations: slow ramp-up from y₀=0 (warm-up phase)
+            - Late iterations: y_t → exponentially weighted long-term average of x
+            
+            3. Trust-region clipping (absolute value + max clip):
+            out = clip(|y_t|, max=lr0·(1+E[w²]))
+            
+            4. Layer-aware averaging:
+            If per_lay=True: return mean(out)  (scalar per layer)
+        
+            5. Output bounds (element-wise):
+ 
+            out ∈ [0, lr0·(1+E[w²])], where wsq ≈ E[w²]
+
+            The upper bound is determined by the clip operation, not by β.
+            However, β controls *convergence speed* to the bound:
+            - β → 1.0: Slower convergence (more stable, longer memory)
+            from 0 toward steady-state ceiling of input magnitude
+        
+            6. Args:
+
+            `lr0` : float
+                Trust-region constant (learning rate scale). Upper bound is lr0·(1+wsq).
+            `betas` : tuple
+                betas[0] = β (single pole), typically β → 1.0
+            `t` : float
+                Iteration count (1, 2, 3, ...).
+            `w` : Tensor
+                Model weights/parameters (shape: arbitrary, typically [batch_size, ...])
+            `gn` : Tensor
+                Normalized gradient direction (typically smooth_grad / grad_power)
+                Shape same as w.
+            `wsq` : Tensor
+                weight moment estimate. Shape same as w.
+            `s` : Tensor
+                EMA state (memory). Shape same as w.
+        
+        Output: 
+            Tensor (scalar if `per_lay`=`True`, else shape of `w`)
+            Learning rate numerator estimate, bounded in [`0`, `lr0·(1+wsq)`].
+
+        Usage context:
+            Called from `lr_t(...)` when `lr_cfg[2]==1`.
+            The returned estimate is smoothed again by an outer single-pole LPF (short-term memory) 
+            before being used as the learning rate numerator.
+        
         '''
-        # chebyshev-style: clip input
-        inp = lr0m * _hub_cheb_v1(w*gn, pcx, pcv, t, betas[0], 1, self.eps)
         # estimate
-        out, s = _lpf_can(s, inp, t, betas[0], eta=1)
-        # clip output around trust-region `lr0`
-        out.abs_().clip_(min=_tuckey(gpow)*lr0m, max=lr0m*_sq(1+wsq))
+        out, s = _lpf_can_t(s, w*gn, t, betas[0], eta=1)
+        # clip estimate around trust-region `lr0`
+        out = lr0*out.abs().clip(max=1+wsq)
         # layer-aware smoothing
         return torch.mean(out) if self.per_lay else out
-    
+
+    def a0(self, lr0, betas, t, gn, s):
+        '''moment. est.
+
+        Estimates the moment of the normalized gradient as the learning-rate numerator.
+
+        `lr0 · E[gn²]`
+   
+            Let β = betas[0], (β → 1.0).
+            
+            1. Input scaling: x = lr0 · gn²
+            
+            2. Exponential averaging via y_t = β · y_{t-1} +  (1-β) · x_t
+            
+            - Effective exponential window length ≈ 1/(1-β) iterations
+            - Early iterations: slow ramp-up from y₀=0 (warm-up phase)
+            - Late iterations: y_t → exponentially weighted long-term average of x,
+             ≈ lr0 · E[gn²] ≈ lr0 (since E[gn²] ≈ 1 for normalized grad)
+            
+            3. Trust-region clipping:
+            out = clip(y_t, max=lr0)
+            
+            4. Layer-aware averaging:
+            If per_lay=True: return mean(out)  (scalar per layer)
+        
+            5. Output bounds (element-wise):
+ 
+            out ∈ [0, lr0]
+
+            The upper bound is determined by the clip operation.
+            However, β controls *convergence speed* to the bound:
+            - β → 1.0: Slower convergence (more stable, longer memory)
+            from 0 toward steady-state ceiling of input magnitude
+
+            Comparison to par-correlation estimators (a1, a2):
+                Low overhead: only needs squaring of gn, no weight access.
+                Robust to sign-flips or oscillation: squaring removes direction.
+                Slower convergence to upperbound compared to a1 or a2, since (1-β) norm. factor in the EMA.
+                Tunable. Since y1 = (1-β) · lr0 = ε, can set lr0 = ε/(1-β)
+
+            Comparison to constant numerator = `lr0 · 1`
+                Natural warmup, adaptative to current grad scale.
+                More robust than fixed `lr0`.
+
+
+            6. Args:
+            `lr0` : float. trust-region constant (scale).
+            `betas` : tuple. `betas[0]` = β (single pole), typically β → 1.0
+            `t` : float. iteration count.
+            `gn` : Tensor. normalized gradient direction (shape matches parameter `w`).
+            `s` : Tensor. EMA state (memory) for this estimator.
+        
+        Output:
+            Tensor: the estimated numerator (scalar if per_lay=True, else same shape as gn).
+        
+        Usage:
+            Called from `lr_t(...)` when `lr_cfg[2] == 5`.
+        
+        '''
+        # estimate
+        out, s = _lpf_can_t(s, lr0*gn*gn, t, betas[0])
+        out.clip_(max=lr0)
+        # layer-aware smoothing
+        return torch.mean(out) if self.per_lay else out
+
+
+    def a0v(self, lr0, betas, t, gn, s):
+        '''[robust-markov] moment. est.
+
+        Estimates the moment of the normalized gradient as the learning-rate numerator.
+
+        `lr0 · E[gn²]`
+   
+            Let β = betas[0], (β → 1.0).
+            
+            1. Input pre-filtering to suppress transient outliers before entering the EMA.
+            x = lr0 · min(gn², a·E[gn²]), E[gn²] ≈ 1.
+            where a = self.cf (typically 4, Markov inequality parameter)
+            
+            2. Exponential averaging via y_t = β · y_{t-1} +  x_t
+            
+            - Effective exponential window length ≈ 1/(1-β) iterations
+            - Early iterations: slow ramp-up from y₀=0 (warm-up phase)
+            - Late iterations: y_t → exponentially weighted long-term average of x,
+             ≈ lr0/(1- β) · E[gn²] ≈ lr0/(1- β) (since E[gn²] ≈ 1 for normalized grad)
+            
+            3. Trust-region clipping:
+            out = clip(y_t, max=lr0)
+            
+            4. Layer-aware averaging:
+            If per_lay=True: return mean(out)  (scalar per layer)
+        
+            5. Output bounds (element-wise):
+ 
+            out ∈ [0, lr0]
+
+            The upper bound is determined by the clip operation.
+            However, β controls *convergence speed* to the bound:
+            - β → 1.0: Slower convergence (more stable, longer memory)
+            from 0 toward steady-state ceiling of input magnitude
+
+
+            Comparison to par-correlation estimators (a1, a2):
+                Low overhead: only needs squaring of gn, no weight access.
+                Robust to sign-flips or oscillation: squaring removes direction.
+                Slower convergence to upperbound compared to a1 or a2, since (1-β) norm. factor in the EMA.
+                Tunable. Since y1 = (1-β) · lr0 = ε, can set lr0 = ε/(1-β)
+
+            Comparison to constant numerator = `lr0 · 1`
+                Natural warmup, adaptative to current grad scale.
+                More robust than fixed `lr0`.
+
+
+            6. Args:
+            `lr0` : float. trust-region constant (scale).
+            `betas` : tuple. `betas[0]` = β (single pole), typically β → 1.0
+            `t` : float. iteration count.
+            `gn` : Tensor. normalized gradient direction (shape matches parameter `w`).
+            `s` : Tensor. EMA state (memory) for this estimator.
+        
+        Output:
+            Tensor: the estimated numerator (scalar if per_lay=True, else same shape as gn).
+        
+        Usage:
+            Called from `lr_t(...)` when `lr_cfg[2] == 6`.
+        
+        '''
+        # prefilter
+        inp = lr0 * torch.clip(gn*gn, max=self.cf)
+        # estimate
+        out, s = _lpf_can_t(s, inp, t, betas[0], eta=0)
+        out.clip_(max=lr0)
+        # layer-aware smoothing
+        return torch.mean(out) if self.per_lay else out
+
+
     def step(self, closure=None, history=None):
         """
         Performs a single optimization step.
@@ -1295,18 +1555,17 @@ class AutoSGM(Optimizer):
                 if not getattr(p, 'requires_grad', True): continue
                 _ = self.lazyinit_param(p, group)
 
-    def update_ltv_hist(self, p, history, betas, wcf, t, 
-                w, g, gpow, v, numlr):
+    def update_ltv_hist(self, p, history, w, g, gpow, v, numlr):
             
             state = self.state[p]
+            betas = state['beta_cfg']
+            wcf = state['wd_cfg']   
+            t = state['step'].item()
             # filter params
             beta = betas[2]
             gamma = betas[3]
             eta = (1-beta)/(1-gamma)
-
-            etan = 1-beta
-            etab = etan if betas[-2] == 0 else betas[-2]
-            nf = (etan/etab)/(1-math.pow(beta,t)) if betas[-1] else 1
+            nf = self.step_scale(betas, t)
 
             # wd params
             rho = wcf[0]
@@ -1373,4 +1632,21 @@ class AutoSGM(Optimizer):
             history[p]['dw[t+1]_sd'].append(dwpms[1])
             history[p]['r[t]_sd'].append(rms[1])
             history[p]['alpha[t]_sd'].append(lrms[1])
+
+
+            # BI = (hstate['e[t]_sup'][-1])/(1-gamma)
+            # BO = hstate['alpha[t]_sup'][-1]*(hstate['dw[t]_sup'][0] + BI)
+    
+    def step_scale(self, betas, t, id=2):
+        '''
+        smoothing: unit-step response normalization constant  id=2,
+        else used to debias the long-term average estimate, id = {0, 1}
+        '''
+        if t == 0: return 1
+        beta_i = betas[id]
+        etan = 1-beta_i
+        etab = etan if betas[-2] == 0 else betas[-2]
+        nf = (etan/etab)/(1-math.pow(beta_i,t)) if betas[-1] else 1
+        return nf
+    
 
