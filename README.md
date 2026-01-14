@@ -294,7 +294,7 @@ opt.zero_grad()
 - `eps_cfg` = (`eps`,)
   - `eps`: *float*. small positive constant used for numerical stability (avoid division by zero).
 
-> Windowing (Learning-rate schedule)
+> Windowing (Trust-region variable used with the iteration-dependent ratio function, also called Learning-rate schedules)
 - `rc_cfg` = (`rcm`, `inseq`, `x`, `n`, `m`, `tau`, `spe`, `cfact`, `e`)
   - `rcm`: *int*. window function (schedule type)
     - **0**: inactive, flat, 
