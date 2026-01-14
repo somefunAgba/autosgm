@@ -9,11 +9,11 @@
 
 - **Moment estimation** ( that is Adaptive Moment Estimation **Adam**) of the gradient's moment and **Partial-correlation estimators** are part of optimal iteration-dependent *learning rate* functions.
 
-- Smoothing the gradient via the **first-order lowpass filter** is approximately smoothing the loss function, so its primary function is regularization not acceleration.
+- Smoothing the gradient via the **first-order lowpass filter** is approximately smoothing the loss function, suggesting that its primary function is regularization not acceleration.
 
-- In general, under a first-order filtering of the gradient, and choice of an iteration-dependent learning rate, the <a href="https://somefunagba.github.io/learning_dynamics" target="_blank">**stochastic gradient learning dynamics**</a> is that of a **first-order linear time (iteration) varying (LTV) filter** in the parameter-change level.
+- In general, under a first-order filtering of the gradient, and choice of an iteration-dependent learning rate, the <a href="https://somefunagba.github.io/learning_dynamics" target="_blank">**stochastic gradient learning dynamics**</a> is that of a **first-order linear time (iteration) varying (LTV) filter** with respect to the parameter-change or step level.
 
-- Characterize **stability** properties of the stochastic gradient learning dynamics.
+- Characterize the **stability** properties of the stochastic gradient learning dynamics.
 
 - Both **standard** weight-decay and **decoupled** weight-decay are **coupled damping** terms in the parameter-change level.
 
@@ -27,7 +27,7 @@
 
 
 
-<img align="center" src="./asgm_basic_blk.png" width="700">   
+<img align="center" src="./highlevel_asgm_blk_diag.png" width="700">   
 
 > This AutoSGM implementation allows researchers and developers to play with several variations of the stochastic gradient algorithm, as they have been called, 
 > such as Polyak’s Heavy Ball (PHB), Nesterov’s Accelerated Gradient (NAG), and Adam.
