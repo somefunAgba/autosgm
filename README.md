@@ -261,11 +261,11 @@ opt.zero_grad()
     - **False**: use `lr_init` as a constant learning rate.
   - `lr_init`: *float*. trust-region constant used by the iteration-dependent ratio function when `aoptlr=True`
   - `num_lrc`: *int*. (0,1,2,3,4) select an estimator for the learning-rate numerator 
-    - *0*: [robust] moment estimator + unity numerator (baseline). 
-    - *1*: [robust] moment estimator + parcor estimator.
-    - *2*: [robust] moment estimator + parcor estimator, with Huberized prefilter
-    - *3*: [robust] moment estimator + moment estimator.
-    - *4*: [robust] moment estimator + unity numerator, with Huberized prefilter.
+    - *0*: denominator: moment estimator, numerator: unity (baseline). 
+    - *1*: denominator: moment estimator, numerator: parcor estimator.
+    - *2*: denominator: moment estimator, numerator: Huberized parcor estimator.
+    - *3*: denominator: moment estimator, numerator: moment estimator.
+    - *4*: denominator: moment estimator, numerator: unity (with Huberized prefilter).
 
 > Filtering (gradient smoothing (lowpass regularization) and exponential moving averages (EMAs))
 - `beta_cfg` = (`beta_n`, `beta_a`, `beta_i`, `gamma_i`, `eta_i`, `debias`)
