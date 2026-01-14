@@ -178,14 +178,14 @@ opt7 = AutoSGM(
 ```
 
 ## Results [Paper]
-Using Adam as a fixed learning-rate numerator (colored **red**) baseline for the fuller iteration-dependent learning rate (colored **blue**), we tested the AutoSGM framework on CIFAR-10 image-classifcation (ViT, ResNet) and language modeling (GPT-2 on WikiText-103 and Shakespeare-char) tasks.
+Using Adam as a fixed learning-rate numerator (colored **red**) baseline for the other par-cor learning rate numerator (colored **blue**), we tested the AutoSGM framework on CIFAR-10 image-classifcation (ViT, ResNet) and language modeling (GPT-2 on WikiText-103 and Shakespeare-char) tasks.
 
 Results: The **blue** curves mostly outperformed **red** curves, across several zero locations ($\gamma$) of the first-order lowpass filter.
 
 ### 1. GPT-2 on Shakespeare-char  
 
 
-<img src="assets/tt_grid2x4_asgmpaper_ngpt_shake_30M_extralrc1_cmps_asgm_runs=10_blksz=128_bsize=64.png" width="800" /> 
+<img src="assets/tt_grid2x4_asgmpaper_ngpt_shake_30M_correction_cmps_asgm_runs=10_blksz=128_bsize=64.png" width="800" /> 
 
 ### 2. VIT on CIFAR10.  
 
@@ -244,7 +244,7 @@ opt = AutoSGM(
     lr_cfg=(True, 1e-2, 3),      # setup learning-rate (lr) algorithm
     beta_cfg=(0.9999, 0.999, 0.9, 0.5528, 0, True), # setup filters: averaging, and grad smoothing
     rc_cfg=(1, 0, 0, 2, 1, num_epochs, iters_epoch, 1, 0), # setup window (lr schedule)
-    wd_cfg=(0.0, 0),             # setup weight decay
+    wd_cfg=(0.0, 1),             # setup weight decay
     eps_cfg=(1e-10,),            # setup numerical eps
 )
 
