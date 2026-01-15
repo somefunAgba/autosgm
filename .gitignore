@@ -3,7 +3,9 @@ lrwins
 __pycache__
 __init__.py
 *test.py
-assets
+assets/*.py
+assets/*.ipynb
+assets/*/
 quad_sime2.html
 asgm_sim.ipynb
 asgm_sim.py
