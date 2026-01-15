@@ -5,7 +5,7 @@ __init__.py
 *test.py
 assets/*.py
 assets/*.ipynb
-assets/*/
+assets
 quad_sime2.html
 asgm_sim.ipynb
 asgm_sim.py
