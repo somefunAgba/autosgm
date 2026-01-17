@@ -283,7 +283,7 @@ opt.zero_grad()
   - `debias`: *bool*. (**True** | **False**) 
     - **True**, debias the filter output for improved transient-behavior (default).
 
-> Weight-decay (L2 regularization)
+> Weight-decay (Regularization)
 - `wd_cfg` = (`wd_cte`, `wd_lvl`)
   - `wd_cte`: *float*. weight-decay constant.
   - `wd_lvl`: *int*. decoupling level (**0**, **1**) 
