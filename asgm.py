@@ -172,7 +172,7 @@ def _lpf_can_t(v, x, t:float,
 
     # normalization factor
     eta_n = 1-beta
-    u_gam = 1-gamma
+    u_gam = 1 if t==1 else 1-gamma
     # explicitly normalize pole-only TF 
     # if input `eta` is `0`.
     if eta == 0: eta = eta_n
@@ -236,7 +236,7 @@ def _lpf_can(v, x, t:float,
 
     # normalization factor
     eta_n = 1-beta
-    u_gam = 1-gamma
+    u_gam = 1 if t==1 else 1-gamma
     # explicitly normalize pole-only TF 
     # if input `eta` is `0`.
     if eta == 0: eta = eta_n
@@ -862,7 +862,7 @@ class WINF_II():
 
 # ---MAT
 
-def _CLASS_OPT(G, use2d=True, matrix_threshold=4, large_dim=1024):
+def _CLASS_OPT(G, use2d=True, small_dim=4, large_dim=2048):
     """
     Classify gradient tensor G using only min/max logic.
 
@@ -873,11 +873,14 @@ def _CLASS_OPT(G, use2d=True, matrix_threshold=4, large_dim=1024):
     """
 
     original_shape = G.shape
+    # print('in',G.shape)
+    if not use2d:
+        return False, False, original_shape
     # ---------------------------------------------------------
     # (A) Sparse → always vector-like
     # ---------------------------------------------------------
     if G.is_sparse:
-        print('SPARSE', G.shape)
+        print('sparse', G.shape)
         return False, False, original_shape
 
     # ---------------------------------------------------------
@@ -887,7 +890,7 @@ def _CLASS_OPT(G, use2d=True, matrix_threshold=4, large_dim=1024):
         return False, False, original_shape
 
     # ---------------------------------------------------------
-    # (C) >2D → flatten to 2D
+    # (C) > 2D → flatten to 2D
     # ---------------------------------------------------------
     if G.ndim > 2:
         # G = G.reshape(G.shape[0], -1)
@@ -902,19 +905,19 @@ def _CLASS_OPT(G, use2d=True, matrix_threshold=4, large_dim=1024):
     mn = min(n, m)
     mx = max(n, m)
 
-    # (D1) Essentially 1D or too small
-    if mn < matrix_threshold:
-        return False, reshaped, original_shape
+    # # (D1) Essentially 1D or too small
+    # if mn < small_dim:
+    #     return False, reshaped, original_shape
 
-    # (D2) Conceptually vector-like:
-    #      one dimension huge, the other small
+    # # (D2) Conceptually vector-like:
+    # #      one dimension huge, the other small
     if mx > large_dim:
         return False, reshaped, original_shape
     
-    print(G.shape)
+    # print('out', G.shape)
     return True and use2d, reshaped, original_shape
 
-def _IMSQRT_EVD(M, eps=1e-6):
+def _IM2_EVD(M, eps=1e-8):
     # M is PSD
     M += eps*torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
     # inverse square root M^{-1/2} via EVD 
@@ -922,23 +925,23 @@ def _IMSQRT_EVD(M, eps=1e-6):
     D_inv_sqrt = D.clip(min=eps).rsqrt() 
     return U @ torch.diag(D_inv_sqrt) @ U.T
 
-def _IMSQRT_NS(M, eps=1e-6, K=7):
+def _IM2_NS(M, eps=1e-8, K=5):
     # M is PSD matrix, K = max inner iterations
     # inverse square root M^{-1/2} via NS 
 
     I = torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
     M += eps*I
-    trace_inv = 1/torch.linalg.norm(M, ord='fro').min(eps) 
+    trace_inv = 1/torch.linalg.norm(M).clip(min=eps) 
 
-    Y = M*trace_inv
+    M *= trace_inv
     Z = 1*I 
-    M3I = 3*I
+    I3 = 3*I
     for _ in range(K): 
-        T = M3I - (Z @ Y) 
-        Y = 0.5 * Y @ T 
+        T = I3 - (Z @ M) 
+        M = 0.5 * M @ T 
         Z = 0.5 * T @ Z 
 
-    return Z*torch.sqrt(trace_inv)
+    return torch.sqrt(trace_inv)*Z
 
 # ---------- PyTorch Optim. Class ----------
 
@@ -953,7 +956,8 @@ class AutoSGM(Optimizer):
                  beta_cfg:Tuple=(0.9999, 0.999, 0.9, 0, 0, True), 
                  rc_cfg:Tuple=(0, 0, 0, 2, 1, 1000, 1, 1, 0), 
                  wd_cfg:Tuple=(0, 0), eps_cfg:Tuple=(1e-10, ), 
-                 maximize:bool=False, dbg:bool=False, mix:bool=False):  
+                 mix_cfg:bool=(False, 1e-2, 0.95, 0, 0.9, 0.9),
+                 maximize:bool=False, dbg:bool=False,):  
         """
         Implements AutoSGM with approximate variants of an optimal learning rate (lr) function, and cosine annealing (rc).
         
@@ -1027,7 +1031,7 @@ class AutoSGM(Optimizer):
         # init. store inputs as optimizer `defaults`
         defaults = dict(dbg=dbg, lr_cfg=lr_cfg, wd_cfg=wd_cfg, 
             eps_cfg=eps_cfg, maximize=maximize, beta_cfg=beta_cfg, 
-            rcf_cfgs=rc_cfg, mix=mix)
+            rcf_cfgs=rc_cfg, mix=mix_cfg)
 
         super().__init__(params, defaults)
         
@@ -1055,9 +1059,11 @@ class AutoSGM(Optimizer):
             state['eps_cfg'] = group['eps_cfg'] 
             state['rcf_cfgs'] = group['rcf_cfgs']
             state['maximize'] = group['maximize']
+            state['mix'] = group['mix']
             
             
             rc_cfg = group['rcf_cfgs']
+            scf = group['eps_cfg'] 
 
             state['dtype_dev'] = (dtype, device)
 
@@ -1079,7 +1085,7 @@ class AutoSGM(Optimizer):
             state['cf'] = 4
             self.cf = state['cf']
                             
-            gprops = _CLASS_OPT(p.grad, use2d=state['mix'])
+            gprops = _CLASS_OPT(p.grad, use2d=state['mix'][0])
             state['gprops'] = gprops
 
             # grads.
@@ -1110,22 +1116,27 @@ class AutoSGM(Optimizer):
                     state['d[t]'] = torch.ones_like(p.real)
                     state['w[t]'] = torch.zeros_like(p.real)
             else:
+                # experimental.
                 lcf1, _, lcf3 = state['lr_cfg']
-                state['lr_cfg'] = (lcf1, 1e-2, lcf3)
-                state['evd'] = False
-                # state['evd'] = True
+                state['lr_cfg'] = (lcf1, state['mix'][1], lcf3)
+
+                #state['imsqrt'] = _IM2_EVD # slow
+                state['imsqrt'] = _IM2_NS
 
                 G = p.grad
                 G = G.reshape(G.shape[0], -1)
+                if G.shape[0] > G.shape[1]: G = G.T
                 state['g_sm'] = torch.zeros_like(G.real) 
-                state['g_cov'] = torch.eye(G.shape[0], device=device, dtype=dtype) 
+                state['g_cov'] = scf[0]*torch.eye(G.shape[0],
+                    dtype=dtype, device=device)  
 
-                # lr.
+                # lr num.
                 state['pc_cov'] = None                                         
                 state["lr_num"] = torch.zeros(1, device=device)   
                 state['one'] = torch.ones(1, device=device)           
                 if group['lr_cfg'] and group['lr_cfg'][2] in [1, 2, 3]:
-                    state['pc_cov'] = torch.eye(G.shape[0], device=device, dtype=dtype)     
+                    state['pc_cov'] = scf[0]*torch.eye(G.shape[0],
+                    dtype=dtype, device=device)  
 
         return state
         
@@ -1144,53 +1155,48 @@ class AutoSGM(Optimizer):
             if state['step'] % rc_cfg[5] == 1: state['epoch'] += 1
 
             t = state['step'].item() 
-            k = state['epoch'].item() # epoch index
             
             gprops = state['gprops']                
             w = state['w']  
             g = 1*p.grad # cloned
 
             #--- UPDATEs.        
-            if not gprops[0]:# --- 1D     
+            if not gprops[0]: # --- element-wise     
                 # grad-stats!
-                g, gpow, u, v = self.grad_stats(state, w, g, t)  
+                g, denlr, u, v = self.grad_stats(state, w, g, t)  
                 
                 # lr numerator @ current iteration
-                numlr = self.lr_t(state, t, w, g, gpow, u, v)   
-
-                # windowing. unity, if not active.
-                numlr *= state['rcf'].step(t, k)  
+                numlr, pstep = self.lr_t(state, t, w, g, denlr, u, v)   
                 
                 # debug hist.
-                self.debug(group, history, p, g, w, gpow, v, numlr)
+                self.debug(group, history, p, g, w, denlr, v, numlr)
 
                 # param step.
-                v *= -numlr
             else: # --- 2D
 
                 if gprops[1]:
                     g = g.reshape(g.shape[0], -1)
+                tp = g.shape[0] > g.shape[1]
+                if tp: g = g.T
 
                 # grad-stats!
                 v, denlr = self.grad_stats_m(state, w, g, t)
 
                 # lr numerator
-                numlr = self.lr_tm(state, t, w, v)
+                numlr, pstep = self.lr_tm(state, t, w, v)
 
-                # windowing. unity, if not active.
-                numlr *= state['rcf'].step(t, k)  
-                
                 # param step.
-                v *= -numlr
-                if gprops[1]:
-                    v = v.reshape(gprops[-1])
+                if tp: pstep = pstep.T
+                if gprops[1]: 
+                    pstep = pstep.reshape(gprops[-1])
+                
 
             # ---
 
             # param. update!
-            if maximize: v.neg_()
-            w += v
-        
+            if maximize: pstep.neg_()
+            w += pstep
+
             # pass update to the net. (model) !
             with torch.no_grad(): p.copy_(w)
     
@@ -1200,29 +1206,29 @@ class AutoSGM(Optimizer):
         '''
         gsm = state['g_sm']
         gcov = state['g_cov']
-        betas = state['beta_cfg']
+        betas = state['mix'][2:]
         scf = state['eps_cfg']
         wcf = state['wd_cfg']
-        evd = state['evd']
+        _imsqrt = state['imsqrt']
         
-        eta = (1-betas[2])/(1-betas[3])
+        eta = (1-betas[0])/(1-betas[1])
         # weight-decay!
         wd = wcf[0]*w.reshape(g.shape)
         # no decoupling of weight from smooth grad?
         if wcf[1] == 0: g += wd   
 
         # smooth grad!
-        v, gsm = _lpf_can_t(gsm, g, t, betas[2], betas[3], debias=betas[5])
+        # 0.95 wseems to work better than other values here.
+        v, gsm = _lpf_can_t(gsm, g, t, betas[0], betas[1], eta=1)
    
         # lr denominator @ current iteration
         # grad's covariance est! M[t] = EMA(v v^T)  
         lrden = torch.eye(g.shape[0], device=g.device, dtype=g.dtype) 
         if state['lr_cfg'][0]:
-            # optional pre/post numeric stabilizer
-            m, gcov = _lpf_can_t(gcov, v @ v.T, t, betas[1])
-            if evd: lrden = _IMSQRT_EVD(m, scf[0])
-            else: lrden = _IMSQRT_NS(m)
-        torch.mm
+            # short-term avg., can be disabled
+            m, gcov = _lpf_can_t(gcov, v @ v.T, t, betas[2])
+            lrden = _imsqrt(m, scf[0])
+   
         # smooth grad. (via lr denominator)
         v = lrden @ v 
 
@@ -1247,30 +1253,35 @@ class AutoSGM(Optimizer):
         # iteration-dep. partial weight-grad correlation estimator 
 
         # scalar
-        lrn = state['lr_num']  
         one = state['one']      
         s = state['pc_cov']
         w = w.reshape(v.shape)
 
         #
         self.eps = state['eps_cfg'][0]
-        betas = state['beta_cfg']
+        betas = state['mix'][2:]
         lr0 = one*state['lr_cfg'][1]
+        k = state['epoch'].item() # epoch index
 
         if state['lr_cfg'][0]:     
             # opt lr's numerator
-            if state['lr_cfg'][2] == 0: # denominator only.
-                # trust-region const.
-                return lr0  # numlr = lr0 · 1        
-            elif state['lr_cfg'][2] == 3: # moment est.
-                numlr = self.a0m(lr0, betas, t, v, s)  
-                numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth! 
-                return numlr
-            elif state['lr_cfg'][2] == 4: # denominator only.
-                # trust-region const.
-                return lr0  # numlr = lr0 · 1  
+            if state['lr_cfg'][2] in [0, 3]: 
+                numlr = lr0*state['rcf'].step(t, k) 
+                step = -numlr*v
+                return numlr, step  # numlr = lr0 · 1        
+            elif state['lr_cfg'][2] in [1, 2]: # par-cor est.
+                ft = state['rcf'].step(t, k) 
+                numlr1 = ft*lr0*torch.eye(v.shape[0],
+                    dtype=v.dtype, device=v.device)   
+                out, s = _lpf_sp_t(s, lr0 * w @ v.T, t, betas[-1])
+                numlr2 = ft*lr0*out  
+                numlr = numlr1 + numlr2
+                step = -numlr @ v
+                return numlr, step   
         else: # constant, no normalization
-            return lr0
+            numlr = lr0*state['rcf'].step(t, k)
+            step = -numlr*v
+            return numlr, step
 
 
     def grad_stats(self, state, w, g, t):
@@ -1335,35 +1346,49 @@ class AutoSGM(Optimizer):
 
         betas = state['beta_cfg']
         lr0 = one*state['lr_cfg'][1]
+        k = state['epoch'].item() # epoch index
+        # [rcf]-windowing. unity, if not active.
+
         if state['lr_cfg'][0]:     
             # opt lr's numerator
             if state['lr_cfg'][2] == 0: # denominator only.
                 # trust-region const.
-                return lr0  # numlr = lr0 · 1        
+                numlr = lr0*state['rcf'].step(t, k) 
+                step = -numlr*v
+                return numlr, step  # numlr = lr0 · 1           
             elif state['lr_cfg'][2] == 1: # robust par-corr est.  
                 cmax, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
                 cmax += 1
                 numlr = self.a1(lr0,betas,t,w,v,s,cmax)
                 numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth!
-                return numlr            
+                numlr *= state['rcf'].step(t, k) 
+                step = -numlr*v
+                return numlr, step            
             elif state['lr_cfg'][2] == 2: # robust par-corr est. 
                 cmax, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
                 cmax += 1
                 numlr = self.a2(lr0,betas,t,w,v,s,cmax,pcx, gpow)  
                 numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth! 
-                return numlr
+                numlr *= state['rcf'].step(t, k) 
+                step = -numlr*v
+                return numlr, step   
             elif state['lr_cfg'][2] == 3: # moment est.
                 numlr = self.a0(lr0, betas, t, gn, s)  
                 numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth! 
-                return numlr
+                numlr *= state['rcf'].step(t, k) 
+                step = -numlr*v
+                return numlr, step   
             elif state['lr_cfg'][2] == 4: # denominator only.
                 # trust-region const.
-                return lr0  # numlr = lr0 · 1  
-
+                numlr = lr0*state['rcf'].step(t, k) 
+                step = -numlr*v
+                return numlr, step  # numlr = lr0 · 1    
 
         else: # constant, no normalization
-            return lr0
-        
+            numlr = lr0*state['rcf'].step(t, k) 
+            step = -numlr*v
+            return numlr, step  # numlr = lr0 · 1  
+
            
     def a2(self, lr0, betas, t, w, gn, s, cmax, pcx, gpow):
         '''[robust-markov] par-corr. est.
@@ -1551,17 +1576,6 @@ class AutoSGM(Optimizer):
         '''
         # estimate
         out, s = _lpf_can_t(s, lr0*gn*gn, t, betas[0])
-        out.clip_(max=lr0)
-        return out
-
-    def a0m(self, lr0, betas, t, gn, s):
-        '''moment. est. same as a0, but mat.
-
-        Estimates the moment of the normalized gradient as the learning-rate numerator.
-        
-        '''
-        # estimate
-        out, s = _lpf_can_t(s, lr0*(gn @ gn.t()), t, betas[0])
         out.clip_(max=lr0)
         return out
 
