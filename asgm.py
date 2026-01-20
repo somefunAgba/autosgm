@@ -860,64 +860,43 @@ class WINF_II():
         return y
 
 
-# ---MAT
+# --- Special 2d helper functions---
 
-def _CLASS_OPT(G, use2d=True, small_dim=4, large_dim=2048):
+def _class_opt(G, use2d=True, mn_dim=4, mx_dim=2048):
     """
-    Classify gradient tensor G using only min/max logic.
-
+    classify gradient tensor G to use 2d update or not.
+    Args:
+        G (Tensor): _gradient_
+        use2d (bool, optional): _flag_. Defaults to True.
+        mn_dim (int, optional): _small_dim_. Defaults to 4.
+        mx_dim (int, optional): _large_dim_. Defaults to 2048.
     Returns:
-        classm     : True → use 2D Matrix logic
-        reshaped   : True if reshaped to 2D
-        original_shape
+        tuple: _(classG, reshaped, original_shape)_. if _classG_ is True, use 2d update; _reshaped_ is True if G reshaped to 2d;
+        _original_shape_ is the original shape of G.
     """
 
     original_shape = G.shape
     # print('in',G.shape)
-    if not use2d:
-        return False, False, original_shape
-    # ---------------------------------------------------------
-    # (A) Sparse → always vector-like
-    # ---------------------------------------------------------
-    if G.is_sparse:
-        print('sparse', G.shape)
-        return False, False, original_shape
 
-    # ---------------------------------------------------------
-    # (B) True 1D → vector-like
-    # ---------------------------------------------------------
-    if G.ndim == 1:
-        return False, False, original_shape
+    # vector-like cases
+    casevec = not use2d or G.is_sparse or G.ndim==1
+    if casevec: return False, False, original_shape
 
-    # ---------------------------------------------------------
-    # (C) > 2D → flatten to 2D
-    # ---------------------------------------------------------
-    if G.ndim > 2:
-        # G = G.reshape(G.shape[0], -1)
-        reshaped = True
-    else:
-        reshaped = False
-
-    # ---------------------------------------------------------
-    # (D) Use min/max to classify
-    # ---------------------------------------------------------
+    # reshape to 2D if ndim > 2
+    reshaped = False
+    if G.ndim > 2: reshaped = True
+        
     n, m = G.shape
-    mn = min(n, m)
-    mx = max(n, m)
+    mn, mx = min(n, m), max(n, m)
 
-    # # (D1) Essentially 1D or too small
-    # if mn < small_dim:
-    #     return False, reshaped, original_shape
-
-    # # (D2) Conceptually vector-like:
-    # #      one dimension huge, the other small
-    if mx > large_dim:
-        return False, reshaped, original_shape
+    # mn too small or mx too large (embedding case)
+    caseignore = mn < mn_dim or mx > mx_dim
+    if caseignore: return False, reshaped, original_shape
     
     # print('out', G.shape)
-    return True and use2d, reshaped, original_shape
+    return True, reshaped, original_shape
 
-def _IM2_EVD(M, eps=1e-8):
+def _imsrEVD(M, eps=1e-8):
     # M is PSD
     M += eps*torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
     # inverse square root M^{-1/2} via EVD 
@@ -925,23 +904,20 @@ def _IM2_EVD(M, eps=1e-8):
     D_inv_sqrt = D.clip(min=eps).rsqrt() 
     return U @ torch.diag(D_inv_sqrt) @ U.T
 
-def _IM2_NS(M, eps=1e-8, K=5):
+def _imsrNS(M, eps=1e-8, K=5):
     # M is PSD matrix, K = max inner iterations
     # inverse square root M^{-1/2} via NS 
-
     I = torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
     M += eps*I
     trace_inv = 1/torch.linalg.norm(M).clip(min=eps) 
-
     M *= trace_inv
-    Z = 1*I 
-    I3 = 3*I
+    Z, I3 = 1*I, 3*I 
     for _ in range(K): 
         T = I3 - (Z @ M) 
-        M = 0.5 * M @ T 
+        M = 0.5 * M @ T
         Z = 0.5 * T @ Z 
-
     return torch.sqrt(trace_inv)*Z
+
 
 # ---------- PyTorch Optim. Class ----------
 
@@ -956,7 +932,7 @@ class AutoSGM(Optimizer):
                  beta_cfg:Tuple=(0.9999, 0.999, 0.9, 0, 0, True), 
                  rc_cfg:Tuple=(0, 0, 0, 2, 1, 1000, 1, 1, 0), 
                  wd_cfg:Tuple=(0, 0), eps_cfg:Tuple=(1e-10, ), 
-                 mix_cfg:bool=(False, 1e-2, 0.95, 0, 0.9, 0.9),
+                 mix_cfg:bool=(False, 1e-2, 0.95, 0, 0.8),
                  maximize:bool=False, dbg:bool=False,):  
         """
         Implements AutoSGM with approximate variants of an optimal learning rate (lr) function, and cosine annealing (rc).
@@ -1066,11 +1042,12 @@ class AutoSGM(Optimizer):
             scf = group['eps_cfg'] 
 
             state['dtype_dev'] = (dtype, device)
-
             state['step'] = torch.tensor(0, dtype=torch.float, device=p.device)
             state['epoch'] = torch.tensor(0, dtype=torch.float, device=p.device)
 
             # win fcn.
+            state['rcfd'] = WINF(rcm=1, x=0, n=2, m=0, 
+                tau=rc_cfg[5], spe=rc_cfg[6], cfact=1, e=0)
             if rc_cfg[0] != 0 and rc_cfg[1] == 1: # kron. input seq
                 state['rcf'] = WINF_II(rc_cfg[0], *rc_cfg[2:])
             else: # rect. input seq
@@ -1085,7 +1062,7 @@ class AutoSGM(Optimizer):
             state['cf'] = 4
             self.cf = state['cf']
                             
-            gprops = _CLASS_OPT(p.grad, use2d=state['mix'][0])
+            gprops = _class_opt(p.grad, use2d=state['mix'][0])
             state['gprops'] = gprops
 
             # grads.
@@ -1102,14 +1079,10 @@ class AutoSGM(Optimizer):
                 if group['lr_cfg']:
                     if group['lr_cfg'][2] in [1, 2, 3]:
                         state['pc'] = torch.zeros_like(p.real)
-
-                    if group['lr_cfg'][2] in [1, 2, ]:
                         state['wsq'] = torch.zeros_like(p.real)
-
                     if group['lr_cfg'][2] in [2, ]:
                         state['pcx'] = torch.zeros_like(p.real)      
                         
-
                 if group['dbg']:
                     state['g[t]'] = torch.zeros_like(p.real) 
                     state['alpha[t]'] = torch.ones_like(p.real)
@@ -1120,11 +1093,12 @@ class AutoSGM(Optimizer):
                 lcf1, _, lcf3 = state['lr_cfg']
                 state['lr_cfg'] = (lcf1, state['mix'][1], lcf3)
 
-                #state['imsqrt'] = _IM2_EVD # slow
-                state['imsqrt'] = _IM2_NS
+                #state['imsqrt'] = _imsrEVD # slow
+                state['imsqrt'] = _imsrNS
 
                 G = p.grad
-                G = G.reshape(G.shape[0], -1)
+                if gprops[1]: G = G.reshape(G.shape[0], -1)
+                # lower dim. first
                 if G.shape[0] > G.shape[1]: G = G.T
                 state['g_sm'] = torch.zeros_like(G.real) 
                 state['g_cov'] = scf[0]*torch.eye(G.shape[0],
@@ -1166,18 +1140,16 @@ class AutoSGM(Optimizer):
                 g, denlr, u, v = self.grad_stats(state, w, g, t)  
                 
                 # lr numerator @ current iteration
-                numlr, pstep = self.lr_t(state, t, w, g, denlr, u, v)   
+                # param step.
+                numlr, pstep = self.lr_t(state, t, w, denlr, u, v)   
                 
                 # debug hist.
                 self.debug(group, history, p, g, w, denlr, v, numlr)
-
-                # param step.
-            else: # --- 2D
-
-                if gprops[1]:
-                    g = g.reshape(g.shape[0], -1)
-                tp = g.shape[0] > g.shape[1]
-                if tp: g = g.T
+            else: 
+                # 2D
+                if gprops[1]: g = g.reshape(g.shape[0], -1)
+                lowdim = g.shape[0] > g.shape[1]
+                if lowdim: g = g.T
 
                 # grad-stats!
                 v, denlr = self.grad_stats_m(state, w, g, t)
@@ -1186,13 +1158,10 @@ class AutoSGM(Optimizer):
                 numlr, pstep = self.lr_tm(state, t, w, v)
 
                 # param step.
-                if tp: pstep = pstep.T
-                if gprops[1]: 
-                    pstep = pstep.reshape(gprops[-1])
-                
+                if lowdim: pstep = pstep.T
+                if gprops[1]: pstep = pstep.reshape(gprops[-1])
 
             # ---
-
             # param. update!
             if maximize: pstep.neg_()
             w += pstep
@@ -1218,16 +1187,16 @@ class AutoSGM(Optimizer):
         if wcf[1] == 0: g += wd   
 
         # smooth grad!
-        # 0.95 wseems to work better than other values here.
+        # 0.95 seems to work better than other values here.
         v, gsm = _lpf_can_t(gsm, g, t, betas[0], betas[1], eta=1)
    
         # lr denominator @ current iteration
-        # grad's covariance est! M[t] = EMA(v v^T)  
+        # grad's auto-covariance est! M[t] = EMA(v v^T)  
         lrden = torch.eye(g.shape[0], device=g.device, dtype=g.dtype) 
-        if state['lr_cfg'][0]:
-            # short-term avg., can be disabled
-            m, gcov = _lpf_can_t(gcov, v @ v.T, t, betas[2])
-            lrden = _imsqrt(m, scf[0])
+
+        # short-term avg., can be disabled to save memory.
+        m, gcov = _lpf_can_t(gcov, v @ v.T, t, betas[2])
+        lrden = _imsqrt(m, scf[0])
    
         # smooth grad. (via lr denominator)
         v = lrden @ v 
@@ -1263,26 +1232,17 @@ class AutoSGM(Optimizer):
         lr0 = one*state['lr_cfg'][1]
         k = state['epoch'].item() # epoch index
 
-        if state['lr_cfg'][0]:     
-            # opt lr's numerator
-            if state['lr_cfg'][2] in [0, 3]: 
-                numlr = lr0*state['rcf'].step(t, k) 
-                step = -numlr*v
-                return numlr, step  # numlr = lr0 · 1        
-            elif state['lr_cfg'][2] in [1, 2]: # par-cor est.
-                ft = state['rcf'].step(t, k) 
-                numlr1 = ft*lr0*torch.eye(v.shape[0],
-                    dtype=v.dtype, device=v.device)   
-                out, s = _lpf_sp_t(s, lr0 * w @ v.T, t, betas[-1])
-                numlr2 = ft*lr0*out  
-                numlr = numlr1 + numlr2
-                step = -numlr @ v
-                return numlr, step   
-        else: # constant, no normalization
-            numlr = lr0*state['rcf'].step(t, k)
+        # opt lr's numerator
+        if state['lr_cfg'][2] in [0, 1, 2,]: 
+            numlr = lr0*state['rcf'].step(t, k) 
             step = -numlr*v
-            return numlr, step
-
+            return numlr, step  # numlr = lr0 · 1        
+        elif state['lr_cfg'][2] in [3,]: # corr est.
+            eye = torch.eye(v.shape[0], dtype=v.dtype, device=v.device)
+            out, s = _lpf_sp_t(s, w @ v.T, t, betas[-1])  
+            numlr = lr0 * state['rcf'].step(t, k) * (eye + 1e-6*out)
+            step = -numlr @ v
+            return numlr, step   
 
     def grad_stats(self, state, w, g, t):
         '''gradient stats.
@@ -1328,7 +1288,7 @@ class AutoSGM(Optimizer):
 
         return g, gpow, u, v
                  
-    def lr_t(self, state, t, w, g, gpow, gn, v):
+    def lr_t(self, state, t, w, gpow, gn, v):
         ''' pick learning rate numerator [often per layer]
 
         If `aoptlr` is `True`, `lr0` is a trust-region constant for the iteration-dependent learning rate. 
@@ -1347,47 +1307,39 @@ class AutoSGM(Optimizer):
         betas = state['beta_cfg']
         lr0 = one*state['lr_cfg'][1]
         k = state['epoch'].item() # epoch index
-        # [rcf]-windowing. unity, if not active.
 
         if state['lr_cfg'][0]:     
-            # opt lr's numerator
-            if state['lr_cfg'][2] == 0: # denominator only.
-                # trust-region const.
+            # trust-region opt. lr's numerator
+            if state['lr_cfg'][2] in [0, 4]: # unity.
                 numlr = lr0*state['rcf'].step(t, k) 
                 step = -numlr*v
                 return numlr, step  # numlr = lr0 · 1           
-            elif state['lr_cfg'][2] == 1: # robust par-corr est.  
+            elif state['lr_cfg'][2] == 1: # robust par-corr est. 1  
                 cmax, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
-                cmax += 1
-                numlr = self.a1(lr0,betas,t,w,v,s,cmax)
+                numlr = self.a1(lr0,betas,t,w,v,s,cmax+1)
                 numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth!
                 numlr *= state['rcf'].step(t, k) 
                 step = -numlr*v
                 return numlr, step            
-            elif state['lr_cfg'][2] == 2: # robust par-corr est. 
+            elif state['lr_cfg'][2] == 2: # robust par-corr est. 2 
                 cmax, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
-                cmax += 1
-                numlr = self.a2(lr0,betas,t,w,v,s,cmax,pcx, gpow)  
+                numlr = self.a2(lr0,betas,t,w,v,s,cmax+1,pcx, gpow)  
                 numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth! 
                 numlr *= state['rcf'].step(t, k) 
                 step = -numlr*v
                 return numlr, step   
-            elif state['lr_cfg'][2] == 3: # moment est.
-                numlr = self.a0(lr0, betas, t, gn, s)  
+            elif state['lr_cfg'][2] == 3: # reg. corr est.
+                cmax, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
+                numlr = self.a0(lr0, betas, t, w, gn, s, cmax+1)  
                 numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth! 
                 numlr *= state['rcf'].step(t, k) 
                 step = -numlr*v
-                return numlr, step   
-            elif state['lr_cfg'][2] == 4: # denominator only.
-                # trust-region const.
-                numlr = lr0*state['rcf'].step(t, k) 
-                step = -numlr*v
-                return numlr, step  # numlr = lr0 · 1    
+                return numlr, step    
 
-        else: # constant, no normalization
+        else: # constant lr with windowing
             numlr = lr0*state['rcf'].step(t, k) 
             step = -numlr*v
-            return numlr, step  # numlr = lr0 · 1  
+            return numlr, step
 
            
     def a2(self, lr0, betas, t, w, gn, s, cmax, pcx, gpow):
@@ -1406,7 +1358,6 @@ class AutoSGM(Optimizer):
             
             3. same as a1.
  
-            • Convergence to bounds (faster than a1 due to pre-filtering):
             - Pre-filter removes spikes → LPF input more stable → faster saturation
             • Hence, robust to both spike outliers and statistical noise.
                  
@@ -1415,13 +1366,12 @@ class AutoSGM(Optimizer):
                 Markov inequality: `P(|x| > a. E[|x|]) ≤ 1/a`
                 Huber m-estimator: robust mean estimator
                 Tukey biweight: `ρ(u) = u(1-u²)²` for `|u|≤1`
-
-            Optional, dynamic clipping around lr0 with a Tukey biweight lower bound:
-            τ(gpow) = (1 - gpow²)² · gpow,  with gpow ∈ [0,1]
-            τ(gpow) biweight properties:
-                • τ(0) = 0, τ(1) = 0
-                • τ_max occurs at ≈ 0.2857, that is gpow ≈ 0.4472 (= 1/√5)
-                • Encourages moderate gradient power (suppresses extreme scales)
+                Optional, dynamic clipping around lr0 with a Tukey biweight lower bound:
+                τ(gpow) = (1 - gpow²)² · gpow,  with gpow ∈ [0,1]
+                τ(gpow) biweight properties:
+                    • τ(0) = 0, τ(1) = 0
+                    • τ_max occurs at ≈ 0.2857, that is gpow ≈ 0.4472 (= 1/√5)
+                    • Encourages moderate gradient power (suppresses extreme scales)
         
             . Args:
 
@@ -1453,8 +1403,7 @@ class AutoSGM(Optimizer):
         
         '''
         # markov-prefilter: clip input
-        beta = betas[0] if betas[2] == 0 else betas[1]
-        inp = lr0 * _hub_mark_v(w*gn, pcx, t, beta, a=self.cf) / cmax
+        inp = lr0 * _hub_mark_v(w*gn, pcx, t, betas[1], a=self.cf) / cmax
         # estimate
         out, s = _lpf_sp_t(s, inp, t, betas[0])
         # clip estimate around trust-region `lr0`
@@ -1516,33 +1465,30 @@ class AutoSGM(Optimizer):
         out.abs_().clip_(max=lr0*cmax)
         return out
 
-    def a0(self, lr0, betas, t, gn, s):
-        '''moment. est.
+    def a0(self, lr0, betas, t, w, gn, s, cmax):
+        '''corr. est. [regularized]
 
-        Estimates the moment of the normalized gradient as the learning-rate numerator.
-
-        `lr0 · E[gn²]`
+        `lr0 · E[(gn+λ·w)·gn]`
    
-            Let β = betas[0], (β → 1.0).
+            Let β = betas[0], (β → 1.0), λ be a small regularization constant (e.g., 1e-6).
             
-            1. Input scaling: x = lr0 · gn²
+            1. Input scaling: x = lr0 · (gn + λ·w)·gn
             
             2. Exponential averaging via y_t = β · y_{t-1} +  (1-β) · x_t
             
             - Effective exponential window length ≈ 1/(1-β) iterations
             - Early iterations: slow ramp-up from y₀=0 (warm-up phase)
             - Late iterations: y_t → exponentially weighted long-term average of x,
-             ≈ lr0 · E[gn²] ≈ lr0 (since E[gn²] ≈ 1 for normalized grad)
             
             3. Trust-region clipping:
-            out = clip(y_t, max=lr0)
+            out = clip(y_t, max=lr0*[1 + λ(1+|E[w^2]|)])
             
             4. Layer-aware averaging:
             If per_lay=True: return mean(out)  (scalar per layer)
         
             5. Output bounds (element-wise):
  
-            out ∈ [0, lr0]
+            out ∈ [0, lr0*[1 + λ(1+|E[w^2]|)]]
 
             The upper bound is determined by the clip operation.
             However, β controls *convergence speed* to the bound:
@@ -1550,10 +1496,8 @@ class AutoSGM(Optimizer):
             from 0 toward steady-state ceiling of input magnitude
 
             Comparison to par-correlation estimators (a1, a2):
-                Low overhead: only needs squaring of gn, no weight access.
                 Robust to sign-flips or oscillation.
-                Slower convergence to upperbound compared to a1 or a2, since (1-β) norm. factor in the EMA.
-                Tunable. Since y1 = (1-β) · lr0 = ε, can set lr0 = ε/(1-β)
+                Tunable. Since y1 ~ (1-β) · lr0 = ε, can set lr0 = ε/(1-β)
 
             Comparison to constant numerator = `lr0 · 1`
                 Natural warmup, adaptative to current grad scale.
@@ -1565,6 +1509,7 @@ class AutoSGM(Optimizer):
             `betas` : tuple. `betas[0]` = β (single pole), typically β → 1.0
             `t` : float. iteration count.
             `gn` : Tensor. normalized gradient direction (shape matches parameter `w`).
+            `w` : Tensor. parameters in nn. model (shape: arbitrary)
             `s` : Tensor. EMA state (memory) for this estimator.
         
         Output:
@@ -1575,8 +1520,9 @@ class AutoSGM(Optimizer):
         
         '''
         # estimate
-        out, s = _lpf_can_t(s, lr0*gn*gn, t, betas[0])
-        out.clip_(max=lr0)
+        gnd, cmax = gn + 1e-6*w, 1e-6*cmax
+        out, s = _lpf_can_t(s, lr0*gnd*gn, t, betas[0])
+        out.clip_(max=lr0*(1+cmax))
         return out
 
 
