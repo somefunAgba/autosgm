@@ -263,7 +263,7 @@ opt.zero_grad()
   - `num_lrc`: *int*. (0,1,2,3,4) select an estimator for the learning-rate numerator 
     - *0*: denominator: moment estimator, numerator: unity (baseline). 
     - *1*: denominator: moment estimator, numerator: parcor. estimator.
-    - *2*: same as *2*, but with Huberized prefilter.
+    - *2*: same as *1*, but with Huberized prefilter.
     - *3*: denominator: moment estimator, numerator: corr. estimator.
     - *4*: same as *0*, but with a Huber prefilter on the gradient.
 
@@ -294,7 +294,7 @@ opt.zero_grad()
 - `eps_cfg` = (`eps`,)
   - `eps`: *float*. small positive constant used for numerical stability (avoid division by zero).
 
-> Windowing (Trust-region variable used with the iteration-dependent ratio function, also called Learning-rate schedules)
+> Windowing (Variable Trust-region,used with the iteration-dependent ratio function, also called Learning-rate schedules)
 - `rc_cfg` = (`rcm`, `inseq`, `x`, `n`, `m`, `tau`, `spe`, `cfact`, `e`)
   - `rcm`: *int*. window function (schedule type)
     - **0**: inactive, flat, 
