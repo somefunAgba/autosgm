@@ -200,7 +200,7 @@ def _lpf_sp_t(v, x, t:float, beta:float=0.9,):
     '''
     First-order Lowpass filter (unit kernel, Transposed canonical form)
 
-    Uses: smoothing and averaging operations.
+    Uses: single-pole smoothing and averaging operations.
     state or memory `v`, input `x`, 
 
     requires: pole: 0 <= beta < 1
@@ -212,7 +212,7 @@ def _lpf_spa_t(v, x, t:float, beta:float=0.1,):
     '''
     First-order Lowpass filter (unit kernel, Transposed canonical form)
 
-    Uses: smooth-average estimation.
+    Uses: single-pole smooth-average estimation.
     scalar state or memory `v`, input tensor `x`, 
 
     requires: pole: 0 <= beta < 1
@@ -860,7 +860,7 @@ class WINF_II():
         return y
 
 
-# --- Special 2d helper functions---
+# --- Special 2D helpers ---
 
 def _class_opt(G, use2d=True, mn_dim=4, mx_dim=2048):
     """
@@ -879,7 +879,7 @@ def _class_opt(G, use2d=True, mn_dim=4, mx_dim=2048):
     # print('in',G.shape)
 
     # vector-like cases
-    casevec = not use2d or G.is_sparse or G.ndim==1
+    casevec = (not use2d) or G.is_sparse or (G.ndim==1)
     if casevec: return False, False, original_shape
 
     # reshape to 2D if ndim > 2
@@ -890,33 +890,143 @@ def _class_opt(G, use2d=True, mn_dim=4, mx_dim=2048):
     mn, mx = min(n, m), max(n, m)
 
     # mn too small or mx too large (embedding case)
-    caseignore = mn < mn_dim or mx > mx_dim
+    caseignore = mn < mn_dim  or mx > mx_dim
     if caseignore: return False, reshaped, original_shape
     
     # print('out', G.shape)
     return True, reshaped, original_shape
 
-def _imsrEVD(M, eps=1e-8):
-    # M is PSD
-    M += eps*torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
-    # inverse square root M^{-1/2} via EVD 
-    D, U = torch.linalg.eigh(M) 
-    D_inv_sqrt = D.clip(min=eps).rsqrt() 
-    return U @ torch.diag(D_inv_sqrt) @ U.T
+def _msrQR(M, eps=1e-8, K=5, inv=False):
+    """(QR) Iteration for Matrix Square Root and its inverse via Eigenvalue Decomposition.
 
-def _imsrNS(M, eps=1e-8, K=5):
-    # M is PSD matrix, K = max inner iterations
-    # inverse square root M^{-1/2} via NS 
+    Args:   
+        M (Tensor): input square matrix
+        eps (float, optional): regularization constant. Defaults to 1e-8.
+        K (int, optional): number of iterations. Defaults to 5.  
+        inv (bool, optional): if True, compute M^{-1/2}, else M^{1/2}. Defaults to False.
+    """
+    # M is PSD
     I = torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
-    M += eps*I
-    trace_inv = 1/torch.linalg.norm(M).clip(min=eps) 
+    M = M + eps*I
+    trace = torch.linalg.norm(M).clip(min=eps)  
+    trace_inv = 1/trace
     M *= trace_inv
-    Z, I3 = 1*I, 3*I 
+    U = 1*I
     for _ in range(K): 
-        T = I3 - (Z @ M) 
-        M = 0.5 * M @ T
-        Z = 0.5 * T @ Z 
-    return torch.sqrt(trace_inv)*Z
+        Q, R = torch.linalg.qr(M)
+        M = R @ Q
+        U = U @ Q
+    if inv:
+        D_inv_sqrt = torch.sqrt(trace_inv)*torch.diag(M).clip(min=eps).rsqrt() 
+        return U @ torch.diag(D_inv_sqrt) @ U.T
+    else:
+        D_sqrt = torch.sqrt(trace)*torch.diag(M).clip(min=eps).sqrt() 
+        return U @ torch.diag(D_sqrt) @ U.T
+
+def _msrNS(M, eps=1e-8, K=5, inv=False):
+    """Higham's Newton-Schulz (NS) coupled iteration for the Matrix Square Root and its inverse.
+
+    Quadratic order of convergence
+    Cost: 3 mat-mul, 3n^3 flops per iteration + 3 O(1).
+
+    Args:   
+        M (Tensor): input square matrix
+        eps (float, optional): regularization constant. Defaults to 1e-8.
+        K (int, optional): number of iterations. Defaults to 5.  
+        inv (bool, optional): if True, compute M^{-1/2}, else M^{1/2}. Defaults to False.
+
+    Refs:
+        Higham, N. J. (2008). Functions of Matrices. Society for Industrial and Applied Mathematics. https://doi.org/10.1137/1.9780898717778
+        [2017] https://github.com/msubhransu/matrix-sqrt/blob/master/matrix_sqrt.py
+        [2020] https://github.com/photosynthesis-team/piq/issues/190
+    """
+    I = torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
+    M = M + eps*I
+    trace = torch.linalg.norm(M).clip(min=eps)  
+    c = 1/trace
+    M *= c
+    Z, I3 = 1*I, 3*I
+    for _ in range(K): 
+        # R = I - Z @ M
+        # T = R + (0.5 * (I + (Z @ M)))
+        # Z = (1.5 * Z) - 0.5*(Z @ (M @ Z) @ Z)
+        T = 0.5 * (I3 - (Z @ M))
+        M, Z = M @ T, T @ Z 
+        # if torch.linalg.norm(R) < 1e-5: break
+
+    if inv: return torch.sqrt(c)*Z
+    else: return torch.sqrt(trace)*M
+
+def _imsrNS2(M, eps=1e-8, K=5):
+    """Higham's Newton-Schulz (NS) coupled iteration for the inverse Matrix Square Root.
+
+    Args:   
+        M (Tensor): input square matrix
+        eps (float, optional): regularization constant. Defaults to 1e-8.
+        K (int, optional): number of iterations. Defaults to 5.  
+
+    Reference:
+    Higham, N. J. (2008). Functions of Matrices. Society for Industrial and Applied Mathematics. https://doi.org/10.1137/1.9780898717778
+    """
+    return _msrNS(M, eps, K, True)
+
+def _imsrSL2(M, eps=1e-8, K=5):
+    """Slobodan Lakic's (SL) coupled iteration for the Inverse Matrix Square Root.
+
+    Quadratic order of convergence
+    Cost: 3 mat-mul, 3n^3 flops per iteration + 3 O(1).
+
+    Args:   
+        M (Tensor): input square matrix
+        eps (float, optional): regularization constant. Defaults to 1e-8.
+        K (int, optional): number of iterations. Defaults to 5.  
+
+    Refs:
+        Lakić, S. (1998).
+        On the computation of the matrix k-th root.
+        Zeitschrift für Angewandte Mathematik und Mechanik, 78(3), 167-168.
+        https://doi.org/10.1002/(SICI)1521-4001(199803)78:3<167::AID-ZAMM167>3.0.CO;2-R
+    """
+    I = torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
+    S = M + eps*I
+    trace = torch.linalg.norm(M).clip(min=eps)  
+    c = 1/trace
+    S *= c
+    Z, I3 = 1*I, 3*I
+    for _ in range(K): 
+        T = 0.5 * (I3 - S)
+        Z, S = Z @ T, T @ T @ S 
+
+    return torch.sqrt(c)*Z
+
+def _imsrSL3(M, eps=1e-8, K=5):
+    """Slobodan Lakic's (SL) coupled iteration for the Inverse Matrix Square Root.
+
+    Cubic order of convergence
+    Cost: 4 mat-mul, 4n^3 flops per iteration + 6 O(1).
+    
+    Args:   
+        M (Tensor): input square matrix
+        eps (float, optional): regularization constant. Defaults to 1e-8.
+        K (int, optional): number of iterations. Defaults to 5.  
+
+    Refs:
+        Lakić, S. (1998).
+        On the computation of the matrix k-th root.
+        Zeitschrift für Angewandte Mathematik und Mechanik, 78(3), 167-168.
+        https://doi.org/10.1002/(SICI)1521-4001(199803)78:3<167::AID-ZAMM167>3.0.CO;2-R
+    """
+    I = torch.eye(M.shape[0], device=M.device, dtype=M.dtype) 
+    S = M + eps*I
+    trace = torch.linalg.norm(M).clip(min=eps)  
+    c = 1/trace
+    S *= c
+    Z, I15 = 1*I, 15*I
+    for _ in range(K): 
+        T = 0.125 * ((3*S@S) - (10*S) + I15)
+        Z, S = Z @ T,  S @ T @ T
+
+    return torch.sqrt(c)*Z
 
 
 # ---------- PyTorch Optim. Class ----------
@@ -928,14 +1038,14 @@ class AutoSGM(Optimizer):
     """
         
     def __init__(self, params, *,
-                 lr_cfg:Tuple=(True, 1e-2, 3), 
+                 lr_cfg:Tuple=(True, 1e-2, 0), 
                  beta_cfg:Tuple=(0.9999, 0.999, 0.9, 0, 0, True), 
                  rc_cfg:Tuple=(0, 0, 0, 2, 1, 1000, 1, 1, 0), 
                  wd_cfg:Tuple=(0, 0), eps_cfg:Tuple=(1e-10, ), 
-                 mix_cfg:bool=(False, 1e-2, 0.95, 0, 0.8),
+                 mix_cfg:Tuple=(False, False, 1e-2, 0.95, 0),
                  maximize:bool=False, dbg:bool=False,):  
         """
-        Implements AutoSGM with approximate variants of an optimal learning rate (lr) function, and cosine annealing (rc).
+        Implements AutoSGM with trust-region optimal learning rate (lr) estimators, and learning rate annealing (rc).
         
         
         Args:
@@ -947,12 +1057,12 @@ class AutoSGM(Optimizer):
 
             `lr_init` (`float`, default: `1e-2`) is the learning rate constant if `aoptlr` is False. However, if `aoptlr` is `True`, it serves as a trust-region constant for realizing an optimal choice of learning rate. It that can be tuned to ensure uniformly stable updates across parameters.
 
-            `num_lrc` (`int`, default: `5`) when `aoptlr` is True, use to choose an optimal lr's partial corrleation numerator realization. Expects a value in `{0,1,2,3,4}`. 
-            Setting as `0` indicates a fixed numerator, otherwise iterative estimates are used.
+            `num_lrc` (`int`, default: `0`) when `aoptlr` is True, use to choose an optimal lr's partial corrleation numerator realization. Expects a value in `{0,1,2,3,4}`. 
+            Setting as `0` indicates a fixed lr numerator, otherwise iterative estimates are used.
 
          `wd_cfg` (`float`, `int`): wd_cfg (defaut: (0, 0), optional), set weight decay regularization.
 
-            `wd_cte` (`float`, default: `0`). Set a small positive constant that may be used to stabilize the weight learning process, (reflects an L_2-norm penalty). 
+            `wd_cte` (`float`, default: `0`). Set a small positive constant that may be used to stabilize the weight learning process, #(reflects an L_2-norm penalty). 
 
             `wd_lvl` is the decoupling level (`int`, default: `0`). level `0` is weight-decay at the the parameter-level. level-1 is weight-decay at the parameter-change level. set to `1` to decouple from grad smoothing and normalization. set to `0` for no decoupling. 
                  
@@ -962,9 +1072,9 @@ class AutoSGM(Optimizer):
 
             `beta_a` (`float`, default:`0.999`): lowpass pole for averaging. Set much greater than `0.9`. 
 
-            `beta_i` (`float`, default:`0.9`): lowpass pole for smoothing the gradient. Set less or equal to `0.9`. 
+            `pole` (`float`, default:`0.9`): lowpass pole for smoothing the gradient. Set less or equal to `0.9`. 
 
-            `gamma_i` (`float`, default:`0`): lowpass zero (set as non-negative to reduce over-smoothing, set as negative to increase smoothing). `gamma_i=0` is `HB`, `gamma_i=beta_i/(1+beta_i` is `NAG`. Can improve steady-state error bound.  Expects `gamma < beta_i`  
+            `zero` (`float`, default:`0`): lowpass zero (set as non-negative to reduce over-smoothing, set as negative to increase smoothing). `zero=0` is `HB`, `zero=pole/(1+pole)` is `NAG`. Can improve steady-state error bound.  Expects `zero <= pole`  
 
             `eta_i` (`float`, default:`0`): Expects eta_i in `[0, 1]`. If `eta_i = 0` this resets `eta_i = 1-beta_i`, otherwise the given `eta_i` is used as is. 
 
@@ -993,7 +1103,19 @@ class AutoSGM(Optimizer):
          `eps_cfg` (`float`, ): eps_cfg (defaut: (1e-10, ), optional), set to make normalizations well-behaved.
 
             `float` is a small positive constant used to condition or stabilize the gradient normalization operation (default: `1e-10`). 
-                
+        
+         `mix_cfg` (`bool`, `bool`, `float`, `float`, `float`): mix_cfg ( default: (`False`, `False`, `1e-2`, `0.95`, `0`) ). Setup 2D matrix-style updates.
+
+            `mix` (`bool`, default: `False`): mix 2D shaped updates with element-wise updates.
+            
+            `avg` (`bool`, default: `False`). enable/disbale short-term averaging.
+            
+            `lr0` (`float`, default: `1e-2`).  trust-region constant.
+            
+            `pole` (`float`, default: `0.95`). filter pole (not too close to 1).
+
+            `zero` (`float`, default: `0`). filter zero (less than pole).
+
          `maximize` (`bool`): maximize (default: `False`, optional). indicates the optimization direction. `False` if minimizing, otherwise, it indicates maximizing the learning objective.         
                                   
 
@@ -1040,23 +1162,24 @@ class AutoSGM(Optimizer):
             
             rc_cfg = group['rcf_cfgs']
             scf = group['eps_cfg'] 
+            self.eps = scf[0]
 
             state['dtype_dev'] = (dtype, device)
             state['step'] = torch.tensor(0, dtype=torch.float, device=p.device)
             state['epoch'] = torch.tensor(0, dtype=torch.float, device=p.device)
 
-            # win fcn.
-            state['rcfd'] = WINF(rcm=1, x=0, n=2, m=0, 
-                tau=rc_cfg[5], spe=rc_cfg[6], cfact=1, e=0)
-            if rc_cfg[0] != 0 and rc_cfg[1] == 1: # kron. input seq
-                state['rcf'] = WINF_II(rc_cfg[0], *rc_cfg[2:])
-            else: # rect. input seq
-                state['rcf'] = WINF(rc_cfg[0], *rc_cfg[2:])
+            # state['rcfd'] = WINF(rcm=1, x=0, n=2, m=0, 
+            #     tau=rc_cfg[5], spe=rc_cfg[6], cfact=1, e=0)
+            # if rc_cfg[1] == 1: # kron. input seq
+            # state['rcf'] = WINF_II(rc_cfg[0], *rc_cfg[2:])
+
+            # lr schedule: window fcn with rect. input seq
+            state['rcf'] = WINF(rc_cfg[0], *rc_cfg[2:])
 
             # network weights (parameters)
             state['w'] = _nz(p.real.clone().detach(), group['eps_cfg'][0])
 
-            # for clipping 
+            # for Huber clipping 
             state['cmag'] = torch.zeros(1, device=device)
             state['cvar'] = torch.zeros(1, device=device)  
             state['cf'] = 4
@@ -1067,6 +1190,7 @@ class AutoSGM(Optimizer):
 
             # grads.
             if gprops[0] is False:
+                # element-wise updates.
                 state['g_sm'] = torch.zeros_like(p.real) 
                 state['g_var'] = torch.zeros_like(p.real) 
 
@@ -1089,26 +1213,31 @@ class AutoSGM(Optimizer):
                     state['d[t]'] = torch.ones_like(p.real)
                     state['w[t]'] = torch.zeros_like(p.real)
             else:
-                # experimental.
+                # 2D matrix shaped updates.
                 lcf1, _, lcf3 = state['lr_cfg']
-                state['lr_cfg'] = (lcf1, state['mix'][1], lcf3)
+                state['lr_cfg'] = (lcf1, state['mix'][2], lcf3)
 
-                #state['imsqrt'] = _imsrEVD # slow
-                state['imsqrt'] = _imsrNS
-
+                state['avg'] = state['mix'][1]
+                state['savg'] = 1/2 
+                state['K'] = 5 
+                
                 G = p.grad
                 if gprops[1]: G = G.reshape(G.shape[0], -1)
-                # lower dim. first
+                # smaller dim. first
                 if G.shape[0] > G.shape[1]: G = G.T
+
                 state['g_sm'] = torch.zeros_like(G.real) 
-                state['g_cov'] = scf[0]*torch.eye(G.shape[0],
+
+                # lr den.
+                state['g_cov'] = None
+                if state['avg']:
+                    state['g_cov'] = scf[0]*torch.eye(G.shape[0],
                     dtype=dtype, device=device)  
 
                 # lr num.
                 state['pc_cov'] = None                                         
-                state["lr_num"] = torch.zeros(1, device=device)   
-                state['one'] = torch.ones(1, device=device)           
-                if group['lr_cfg'] and group['lr_cfg'][2] in [1, 2, 3]:
+                state['one'] = torch.ones(1, device=device)   
+                if group['lr_cfg'] and group['lr_cfg'][2] > 0 and state['avg']:
                     state['pc_cov'] = scf[0]*torch.eye(G.shape[0],
                     dtype=dtype, device=device)  
 
@@ -1152,10 +1281,10 @@ class AutoSGM(Optimizer):
                 if lowdim: g = g.T
 
                 # grad-stats!
-                v, denlr = self.grad_stats_m(state, w, g, t)
+                u, v, denlr = self.grad_stats_m(state, w, g, t)
 
                 # lr numerator
-                numlr, pstep = self.lr_tm(state, t, w, v)
+                numlr, pstep = self.lr_tm(state, t, w, u, v, denlr)
 
                 # param step.
                 if lowdim: pstep = pstep.T
@@ -1171,16 +1300,17 @@ class AutoSGM(Optimizer):
     
     def grad_stats_m(self,state,w,g,t):
         '''gradient stats. 2D
-        returns: grad, grad power, grad direction, smooth grad direction.
+        returns: smooth grad., normalized smooth grad, lr denominator.
         '''
         gsm = state['g_sm']
         gcov = state['g_cov']
-        betas = state['mix'][2:]
-        scf = state['eps_cfg']
+        avg = state['avg']
+        betas = state['mix'][3:]
+        scf = state['eps_cfg'][0]
         wcf = state['wd_cfg']
-        _imsqrt = state['imsqrt']
-        
-        eta = (1-betas[0])/(1-betas[1])
+        K = state['K']
+        dcf = (1-betas[0])/(1-betas[1])
+
         # weight-decay!
         wd = wcf[0]*w.reshape(g.shape)
         # no decoupling of weight from smooth grad?
@@ -1190,58 +1320,70 @@ class AutoSGM(Optimizer):
         # 0.95 seems to work better than other values here.
         v, gsm = _lpf_can_t(gsm, g, t, betas[0], betas[1], eta=1)
    
+        # grad's auto-covariance est 
+        m = v @ v.T
+        # short-term avg of v v^T  
+        if avg: m, gcov = _lpf_can_t(gcov, m, t, state['savg'])
         # lr denominator @ current iteration
-        # grad's auto-covariance est! M[t] = EMA(v v^T)  
-        lrden = torch.eye(g.shape[0], device=g.device, dtype=g.dtype) 
-
-        # short-term avg., can be disabled to save memory.
-        m, gcov = _lpf_can_t(gcov, v @ v.T, t, betas[2])
-        lrden = _imsqrt(m, scf[0])
+        lrden = _imsrSL3(m, scf, K)
    
         # smooth grad. (via lr denominator)
-        v = lrden @ v 
+        u, v = 1*v, lrden @ v 
 
         # add decayed weight to normalized [smooth] grad.
-        if wcf[1]: v += eta*wd
+        if wcf[1]: v += dcf*wd
 
         # robustifier: huberize input step
         if state['lr_cfg'][0] in [4,]:  
             cm = state['cmag']
             cv = state['cvar']
-            v = _hub_cheb_s(v, cm, cv, t, betas[0], state['cf'], scf[0])
+            v = _hub_cheb_s(v, cm, cv, t, betas[0], state['cf'], scf)
         
-        return v, lrden
+        return u, v, lrden
 
-    def lr_tm(self, state, t, w, v):
+    def lr_tm(self, state, t, w, u, v, denlr):
         ''' pick learning rate numerator 2D
 
         If `aoptlr` is `True`, `lr0` is a trust-region constant for the iteration-dependent learning rate. 
         Otherwise `lr0` is the constant learning rate, the denominator is 1.
 
         '''
-        # iteration-dep. partial weight-grad correlation estimator 
+        # iteration-dep. estimator 
 
         # scalar
+        avg = state['avg']
         one = state['one']      
         s = state['pc_cov']
         w = w.reshape(v.shape)
 
         #
-        self.eps = state['eps_cfg'][0]
-        betas = state['mix'][2:]
+        scf = one*state['eps_cfg'][0]
+        beta = state['savg']
         lr0 = one*state['lr_cfg'][1]
         k = state['epoch'].item() # epoch index
 
         # opt lr's numerator
-        if state['lr_cfg'][2] in [0, 1, 2,]: 
+        if state['lr_cfg'][2] in [0, ]: # unity 
             numlr = lr0*state['rcf'].step(t, k) 
             step = -numlr*v
-            return numlr, step  # numlr = lr0 · 1        
+            return numlr, step  # numlr = lr0 · 1   
+        elif state['lr_cfg'][2] in [1, 2]: # par-corr est. 1,2 
+            c, cw = lr0 * w @ v.T, lr0 * w @ w.T
+            if avg: c, s = _lpf_can_t(s, c, t, beta)              
+            if avg: cw, s = _lpf_can_t(s, cw, t, beta)  
+            cw = torch.linalg.norm(cw).clip(min=scf, max=lr0)
+            numlr = torch.linalg.norm(c).clip(min=scf, max=cw)
+            # we may opt to use: numlr = cw
+
+            numlr = state['rcf'].step(t, k) * numlr 
+            step = -numlr * v
+            return numlr, step       
         elif state['lr_cfg'][2] in [3,]: # corr est.
-            eye = torch.eye(v.shape[0], dtype=v.dtype, device=v.device)
-            out, s = _lpf_sp_t(s, w @ v.T, t, betas[-1])  
-            numlr = lr0 * state['rcf'].step(t, k) * (eye + 1e-6*out)
-            step = -numlr @ v
+            c = 1e-3 * w @ v.T # regularization
+            if avg: c, s = _lpf_can_t(s, c, t, beta)  
+            c = torch.linalg.norm(c).clip(min=scf, max=lr0)
+            numlr = lr0*(one + c) * state['rcf'].step(t, k) 
+            step = -numlr * v
             return numlr, step   
 
     def grad_stats(self, state, w, g, t):
@@ -1289,20 +1431,19 @@ class AutoSGM(Optimizer):
         return g, gpow, u, v
                  
     def lr_t(self, state, t, w, gpow, gn, v):
-        ''' pick learning rate numerator [often per layer]
+        ''' pick learning rate numerator
 
         If `aoptlr` is `True`, `lr0` is a trust-region constant for the iteration-dependent learning rate. 
         Otherwise `lr0` is the constant learning rate, the denominator is 1.
 
         '''
-        # iteration-dep. partial weight-grad correlation estimator 
+        # iteration-dep. estimator 
 
         lrn = state['lr_num']                
         s = state['pc']
         wsq = state['wsq']
         pcx = state['pcx']
         one = state['one']
-        self.eps = state['eps_cfg'][0]
 
         betas = state['beta_cfg']
         lr0 = one*state['lr_cfg'][1]
@@ -1311,7 +1452,7 @@ class AutoSGM(Optimizer):
         if state['lr_cfg'][0]:     
             # trust-region opt. lr's numerator
             if state['lr_cfg'][2] in [0, 4]: # unity.
-                numlr = lr0*state['rcf'].step(t, k) 
+                numlr = lr0*state['rcf'].step(t, k)
                 step = -numlr*v
                 return numlr, step  # numlr = lr0 · 1           
             elif state['lr_cfg'][2] == 1: # robust par-corr est. 1  
@@ -1330,7 +1471,7 @@ class AutoSGM(Optimizer):
                 return numlr, step   
             elif state['lr_cfg'][2] == 3: # reg. corr est.
                 cmax, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
-                numlr = self.a0(lr0, betas, t, w, gn, s, cmax+1)  
+                numlr = self.a0(lr0, betas, t, w, gn, s, 1+cmax)  
                 numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth! 
                 numlr *= state['rcf'].step(t, k) 
                 step = -numlr*v
@@ -1340,8 +1481,7 @@ class AutoSGM(Optimizer):
             numlr = lr0*state['rcf'].step(t, k) 
             step = -numlr*v
             return numlr, step
-
-           
+         
     def a2(self, lr0, betas, t, w, gn, s, cmax, pcx, gpow):
         '''[robust-markov] par-corr. est.
         
@@ -1352,28 +1492,21 @@ class AutoSGM(Optimizer):
             Let β = betas[0] (β → 1.0) (more stable, longer memory).
             
             1. Input pre-filtering to suppress outliers before entering the EMA.
-            x = lr0 · sign(w·gn) · min(|w·gn|, E[|w·gn|]) / max. E[|w·gn|]
+            x = lr0 · sign(w·gn) · min(|w·gn|, a·E[|w·gn|]) / max.|E[w·gn]|
             
             2. same as a1.
-            
             3. same as a1.
  
-            - Pre-filter removes spikes → LPF input more stable → faster saturation
-            • Hence, robust to both spike outliers and statistical noise.
+            - Pre-filter helps remove spikes → LPF input more numerically stable → faster saturation. Used to ensure robustness to spike outliers and statistical noise.
                  
-
             Notes:
-                Markov inequality: `P(|x| > a. E[|x|]) ≤ 1/a`
-                Huber m-estimator: robust mean estimator
-                Tukey biweight: `ρ(u) = u(1-u²)²` for `|u|≤1`
-                Optional, dynamic clipping around lr0 with a Tukey biweight lower bound:
-                τ(gpow) = (1 - gpow²)² · gpow,  with gpow ∈ [0,1]
-                τ(gpow) biweight properties:
-                    • τ(0) = 0, τ(1) = 0
-                    • τ_max occurs at ≈ 0.2857, that is gpow ≈ 0.4472 (= 1/√5)
-                    • Encourages moderate gradient power (suppresses extreme scales)
+                Markov inequality: `P(|x| > a. E[|x|]) ≤ 1/a`, 
+                Here, we opt for `a = 4`. `P(|x| > 4. E[|x|]) ≤ 1/4`,
+                and implement an Huber m-estimator: robust mean estimator.
+                Optional, Tukey biweight: `p(u) = u(1-u²)²` for `|u|≤1`
+                for dynamic clipping around `lr0` with a Tukey biweight lower bound. We may use p(gpow) = (1 - gpow²)² · gpow,  with gpow constrained ∈ [0,1], so that p(0) = 0, p(1) = 0, and max.p(u) ≈ 0.2857, at u ≈ 0.4472 (= 1/√5) to encourage moderate u: gradient power (or suppress extreme gradient scales)
         
-            . Args:
+            Args:
 
             `lr0` : float.
                 trust-region constant.
@@ -1386,7 +1519,7 @@ class AutoSGM(Optimizer):
             `gn` : float.
                 normalized gradient. Shape same as w.
             `cmax` : float.
-                max. expected |w·gn|. Shape same as w. 
+                max. abs. expected w·gn. Shape same as w. 
             `s` : float.
                 EMA state (memory). Shape same as w.    
             `pcx` : float.
@@ -1427,15 +1560,14 @@ class AutoSGM(Optimizer):
             2. Exponential averaging via y_t = β · y_{t-1} +  x_t
             
             - Effective exponential window length ≈ 1/(1-β) iterations
-            - Early iterations: slow ramp-up from y₀=0 (warm-up phase)
-            - Late iterations: y_t → exponentially weighted long-term average of x
-            
-            3. Output estimate clipped around lr0, via (absolute value + max clip):
-            out = clip(|y_t|, max=lr0 · max. E[|w·gn|]) ∈ (0, lr0· max. E[|w·gn|]]
+            - Slow ramp-up from y₀=0 (transient phase: warm-up behavior)
 
-            The upper bound is determined by the clip operation, not by β.
+            3. Output estimate clipped around lr0, via (absolute value + max clip):
+            out = clip(|y_t|, max=lr0 · max.|E[w·gn]|) 
+            out ∈ (0, lr0 · max.|E[w·gn]|]
+
         
-            . Args:
+            Args:
 
             `lr0` : float.
                 trust-region constant.
@@ -1448,7 +1580,7 @@ class AutoSGM(Optimizer):
             `gn` : float.
                 normalized gradient. Shape same as w.
             `cmax` : float.
-                max. expected |w·gn|. Shape same as w. 
+                max. abs. expected w·gn. Shape same as w. 
             `s` : float.
                 EMA state (memory). Shape same as w.    
         
@@ -1468,7 +1600,7 @@ class AutoSGM(Optimizer):
     def a0(self, lr0, betas, t, w, gn, s, cmax):
         '''corr. est. [regularized]
 
-        `lr0 · E[(gn+λ·w)·gn]`
+        `lr0 · E[(gn + λ·w)·gn]`
    
             Let β = betas[0], (β → 1.0), λ be a small regularization constant (e.g., 1e-6).
             
@@ -1476,24 +1608,16 @@ class AutoSGM(Optimizer):
             
             2. Exponential averaging via y_t = β · y_{t-1} +  (1-β) · x_t
             
-            - Effective exponential window length ≈ 1/(1-β) iterations
-            - Early iterations: slow ramp-up from y₀=0 (warm-up phase)
-            - Late iterations: y_t → exponentially weighted long-term average of x,
-            
             3. Trust-region clipping:
-            out = clip(y_t, max=lr0*[1 + λ(1+|E[w^2]|)])
+            out = clip(y_t, max=lr0*[1 + λ(1+E[w^2|)]) 
+            out ∈ [0, lr0*[1 + λ(1+E[w^2])]]
             
             4. Layer-aware averaging:
             If per_lay=True: return mean(out)  (scalar per layer)
         
-            5. Output bounds (element-wise):
- 
-            out ∈ [0, lr0*[1 + λ(1+|E[w^2]|)]]
 
-            The upper bound is determined by the clip operation.
-            However, β controls *convergence speed* to the bound:
+            β controls *convergence speed* from 0 to the bound or steady-state ceiling of input magnitude:
             - β → 1.0: Slower convergence (more stable, longer memory)
-            from 0 toward steady-state ceiling of input magnitude
 
             Comparison to par-correlation estimators (a1, a2):
                 Robust to sign-flips or oscillation.
@@ -1501,7 +1625,7 @@ class AutoSGM(Optimizer):
 
             Comparison to constant numerator = `lr0 · 1`
                 Natural warmup, adaptative to current grad scale.
-                More robust than fixed `lr0`.
+                May be more robust, since numerator is not fixed `lr0 · 1`.
 
 
             6. Args:
@@ -1520,9 +1644,9 @@ class AutoSGM(Optimizer):
         
         '''
         # estimate
-        gnd, cmax = gn + 1e-6*w, 1e-6*cmax
+        gnd, cmax = gn + self.eps*w, 1 + self.eps*cmax
         out, s = _lpf_can_t(s, lr0*gnd*gn, t, betas[0])
-        out.clip_(max=lr0*(1+cmax))
+        out.clip_(max=lr0*cmax)
         return out
 
 
