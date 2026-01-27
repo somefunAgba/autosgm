@@ -1230,16 +1230,16 @@ class AutoSGM(Optimizer):
 
                 # lr den.
                 state['g_cov'] = None
-                if state['avg']:
-                    state['g_cov'] = scf[0]*torch.eye(G.shape[0],
-                    dtype=dtype, device=device)  
-
                 # lr num.
                 state['pc_cov'] = None                                         
                 state['one'] = torch.ones(1, device=device)   
-                if group['lr_cfg'] and group['lr_cfg'][2] > 0 and state['avg']:
-                    state['pc_cov'] = scf[0]*torch.eye(G.shape[0],
-                    dtype=dtype, device=device)  
+                if state['avg']:
+                    state['g_cov'] = scf[0]*torch.eye(G.shape[0],
+                    dtype=dtype, device=device)
+
+                    if group['lr_cfg'] and group['lr_cfg'][2] in [1,2]:
+                        state['pc_cov'] = scf[0]*torch.eye(G.shape[0],
+                        dtype=dtype, device=device)  
 
         return state
         
@@ -1363,7 +1363,7 @@ class AutoSGM(Optimizer):
         k = state['epoch'].item() # epoch index
 
         # opt lr's numerator
-        if state['lr_cfg'][2] in [0, ]: # unity 
+        if state['lr_cfg'][2] in [0, 3, 4 ]: # unity 
             numlr = lr0*state['rcf'].step(t, k) 
             step = -numlr*v
             return numlr, step  # numlr = lr0 · 1   
@@ -1373,18 +1373,11 @@ class AutoSGM(Optimizer):
             if avg: cw, s = _lpf_can_t(s, cw, t, beta)  
             cw = torch.linalg.norm(cw).clip(min=scf, max=lr0)
             numlr = torch.linalg.norm(c).clip(min=scf, max=cw)
-            # we may opt to use: numlr = cw
+            # one may opt to use: numlr = cw
 
             numlr = state['rcf'].step(t, k) * numlr 
             step = -numlr * v
             return numlr, step       
-        elif state['lr_cfg'][2] in [3,]: # corr est.
-            c = 1e-3 * w @ v.T # regularization
-            if avg: c, s = _lpf_can_t(s, c, t, beta)  
-            c = torch.linalg.norm(c).clip(min=scf, max=lr0)
-            numlr = lr0*(one + c) * state['rcf'].step(t, k) 
-            step = -numlr * v
-            return numlr, step   
 
     def grad_stats(self, state, w, g, t):
         '''gradient stats.
@@ -1471,7 +1464,7 @@ class AutoSGM(Optimizer):
                 return numlr, step   
             elif state['lr_cfg'][2] == 3: # reg. corr est.
                 cmax, wsq = _lpf_can_t(wsq, _sq(w), t, betas[0])
-                numlr = self.a0(lr0, betas, t, w, gn, s, 1+cmax)  
+                numlr = self.a0(lr0, betas, t, w, gn, s)  
                 numlr, lrn = _lpf_spa_t(lrn, numlr, t) # smooth! 
                 numlr *= state['rcf'].step(t, k) 
                 step = -numlr*v
@@ -1597,20 +1590,20 @@ class AutoSGM(Optimizer):
         out.abs_().clip_(max=lr0*cmax)
         return out
 
-    def a0(self, lr0, betas, t, w, gn, s, cmax):
-        '''corr. est. [regularized]
+    def a0(self, lr0, betas, t, w, gn, s):
+        '''corr. est.
 
-        `lr0 · E[(gn + λ·w)·gn]`
+        `lr0 · E[gn²]`
    
-            Let β = betas[0], (β → 1.0), λ be a small regularization constant (e.g., 1e-6).
+            Let β = betas[0], (β → 1.0),
             
-            1. Input scaling: x = lr0 · (gn + λ·w)·gn
+            1. Input scaling: x = lr0 · (gn²)
             
             2. Exponential averaging via y_t = β · y_{t-1} +  (1-β) · x_t
             
             3. Trust-region clipping:
-            out = clip(y_t, max=lr0*[1 + λ(1+E[w^2|)]) 
-            out ∈ [0, lr0*[1 + λ(1+E[w^2])]]
+            out = clip(y_t, max=lr0) 
+            out ∈ [0, lr0]
             
             4. Layer-aware averaging:
             If per_lay=True: return mean(out)  (scalar per layer)
@@ -1644,9 +1637,8 @@ class AutoSGM(Optimizer):
         
         '''
         # estimate
-        gnd, cmax = gn + self.eps*w, 1 + self.eps*cmax
-        out, s = _lpf_can_t(s, lr0*gnd*gn, t, betas[0])
-        out.clip_(max=lr0*cmax)
+        out, s = _lpf_can_t(s, lr0*gn*gn, t, betas[0])
+        out.clip_(max=lr0)
         return out
 
 

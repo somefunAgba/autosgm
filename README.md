@@ -263,8 +263,8 @@ opt.zero_grad()
   - `num_lrc`: *int*. (0,1,2,3,4) select an estimator for the learning-rate numerator 
     - *0*: denominator: moment estimator, numerator: unity (baseline). 
     - *1*: denominator: moment estimator, numerator: parcor. estimator.
-    - *2*: same as *1*, but with Huberized prefilter.
-    - *3*: denominator: moment estimator, numerator: corr. estimator.
+    - *2*: same as *1*, but with a Huber prefiltered numerator.
+    - *3*: same as *0*, but numerator is corr. estimator.
     - *4*: same as *0*, but with a Huber prefilter on the gradient.
 
 > Filtering (gradient smoothing (lowpass regularization) and exponential moving averages (EMAs))
